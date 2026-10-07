@@ -43,6 +43,23 @@ The workspace populates up to four current agents as stationary named villagers 
 4. Point a local orchestrator at `http://127.0.0.1:8787` and publish agent and graph events.
 5. Run `/blockagents build` again to refresh the world installation, then use `/blockagents agents` or `/blockagents graph` for details.
 
+### Copy-paste bridge quickstart
+
+The repository includes a Python standard-library demo—no package install and no particular agent system required. With Minecraft open in one terminal, run:
+
+```bash
+python3 examples/bridge_demo.py
+```
+
+The script checks the bridge, publishes a task, two graph nodes, an edge, and a `Builder` agent, then waits. In Minecraft, enter:
+
+```text
+/blockagents message builder hello from Minecraft
+/blockagents refresh
+```
+
+The script reads that Minecraft-originated message through the bridge outbox and sends an acknowledgement. Use it as a minimal reference for adapting any local orchestrator; it does not depend on or imply an integration with a particular agent product.
+
 ### Communicate from inside Minecraft
 
 Once agents are published, these commands make the world an active workspace rather than a passive display:
@@ -65,7 +82,8 @@ Mutating endpoints accept `POST` only; malformed or incomplete domain payloads r
 | --- | --- | --- |
 | `GET` | `/health` | Check that the bridge is running. |
 | `GET` | `/v1/snapshot` | Get agents, tasks, graph nodes, and graph edges. |
-| `GET` | `/v1/events` | Poll recent state-change events. |
+| `GET` | `/v1/events?after=<cursor>` | Read ordered outbox events after a cursor. |
+| `POST` | `/v1/events/ack` | Store a consumer acknowledgement for a cursor. |
 | `GET` / `POST` | `/v1/agents` | Read or update NPC agent status. |
 | `GET` / `POST` | `/v1/tasks` | Read or update task data. |
 | `GET` / `POST` | `/v1/graph/nodes` | Read or update knowledge graph nodes. |
@@ -83,6 +101,27 @@ curl -X POST http://127.0.0.1:8787/v1/graph/nodes \
   -H 'Content-Type: application/json' \
   -d '{"id":"event-api","label":"Event API","type":"note"}'
 ```
+
+#### Ordered outbox contract
+
+`GET /v1/events?after=0` returns an object with ordered event records and a `nextCursor`:
+
+```json
+{
+  "events": [{"id": 1, "type": "message.created", "subjectId": "minecraft-...", "createdAt": "..."}],
+  "nextCursor": 1
+}
+```
+
+Event IDs are monotonically increasing for the life of the running world/server. Save `nextCursor` after handling each response and pass it back as `after` on the next request; this avoids reprocessing older events. Consumers can explicitly record progress with:
+
+```bash
+curl -X POST http://127.0.0.1:8787/v1/events/ack \
+  -H 'Content-Type: application/json' \
+  -d '{"consumer":"my-local-orchestrator","cursor":1}'
+```
+
+The event stream is an outbox signal, not a copy of every payload. When it reports `message.created`, fetch `/v1/messages` to read the message body; when it reports an agent, task, node, or edge update, fetch the matching endpoint or a snapshot. The in-memory event history retains the newest 500 events, so consumers should poll and persist their own cursor while the world is running.
 
 See [the example payloads](examples/bridge-payloads.json) for each domain object. The initial HTTP event feed is deliberately compatible with polling; a true WebSocket/SSE transport can be added behind the same `WorldState` service without changing the game-facing domain model.
 
