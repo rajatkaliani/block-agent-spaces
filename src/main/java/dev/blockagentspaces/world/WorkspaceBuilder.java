@@ -25,6 +25,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.WrittenBookContent;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.WallSignBlock;
 import net.minecraft.world.level.block.entity.LecternBlockEntity;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.entity.SignText;
@@ -38,6 +39,11 @@ import java.util.*;
 /** Builds a player-centered installation only after the whole placement plan has been proven safe. */
 public final class WorkspaceBuilder {
     private static final int HEIGHT = FlatPatchPlanner.CLEARANCE_HEIGHT;
+    private static final int TICKET_BOARD_Z = 7;
+    private static final int TICKET_BOARD_BACKING_Z = 8;
+    private static final int TICKET_BOARD_MIN_X = 1;
+    private static final int TICKET_BOARD_COLUMN_SPACING = 3;
+    private static final int TICKET_BOARD_HEADER_Y = 4;
     private static final Map<UUID, String> AGENT_BY_ENTITY = new HashMap<>();
 
     public BuildResult build(ServerPlayer player, WorldState state) {
@@ -66,6 +72,7 @@ public final class WorkspaceBuilder {
 
         apply(level, target);
         renderSigns(level, origin, state);
+        renderTicketBoard(level, origin, state);
         renderTeamLog(level, origin, state);
         renderAgents(level, origin, state);
         store.saveInstallation(level, player.getUUID(), origin, target, focusedAgentId);
@@ -91,6 +98,7 @@ public final class WorkspaceBuilder {
             }
             apply(level, target);
             renderSigns(level, origin, state);
+            renderTicketBoard(level, origin, state);
             renderTeamLog(level, origin, state);
             renderAgents(level, origin, state);
             store.saveInstallation(level, entry.getKey(), origin, target, focusedAgentId);
@@ -137,6 +145,7 @@ public final class WorkspaceBuilder {
         put(target, origin.offset(16, 1, 4), Blocks.GLOWSTONE);
         renderGoatControlPoint(target, origin, state);
         renderAgents(target, origin, state);
+        renderTicketBoard(target, origin, state);
         renderGraph(target, origin, state, focusedAgentId);
         renderLegend(target, origin);
         put(target, origin.offset(12, 1, 2), Blocks.LECTERN);
@@ -208,6 +217,35 @@ public final class WorkspaceBuilder {
                 AGENT_BY_ENTITY.put(villager.getUUID(), agentId);
             }
         });
+    }
+
+    private void renderTicketBoard(Map<BlockPos, BlockState> target, BlockPos origin, WorldState state) {
+        TicketBoardPlanner.Board board = TicketBoardPlanner.plan(state.tasks());
+        for (int column = 0; column < board.lanes().length; column++) {
+            int x = TICKET_BOARD_MIN_X + column * TICKET_BOARD_COLUMN_SPACING;
+            for (int y = 1; y <= TICKET_BOARD_HEADER_Y; y++) {
+                put(target, origin.offset(x, y, TICKET_BOARD_BACKING_Z), Blocks.DARK_OAK_PLANKS);
+                target.put(origin.offset(x, y, TICKET_BOARD_Z), Blocks.OAK_WALL_SIGN.defaultBlockState().setValue(WallSignBlock.FACING, Direction.SOUTH));
+            }
+        }
+    }
+
+    private void renderTicketBoard(ServerLevel level, BlockPos origin, WorldState state) {
+        TicketBoardPlanner.Board board = TicketBoardPlanner.plan(state.tasks());
+        for (int column = 0; column < board.lanes().length; column++) {
+            TicketBoardPlanner.Lane lane = board.lanes()[column];
+            int x = TICKET_BOARD_MIN_X + column * TICKET_BOARD_COLUMN_SPACING;
+            List<TicketBoardPlanner.Card> cards = board.cards(lane);
+            writeSign(level, origin.offset(x, TICKET_BOARD_HEADER_Y, TICKET_BOARD_Z), List.of(lane.label(), cards.size() + " ticket" + (cards.size() == 1 ? "" : "s"), "ADAPTER", "REPORTED"));
+            for (int row = 0; row < TicketBoardPlanner.MAX_CARDS_PER_COLUMN; row++) {
+                List<String> lines = row < cards.size() ? ticketLines(cards.get(row)) : List.of("—", "", "", "");
+                writeSign(level, origin.offset(x, TICKET_BOARD_HEADER_Y - row - 1, TICKET_BOARD_Z), lines);
+            }
+        }
+    }
+
+    private static List<String> ticketLines(TicketBoardPlanner.Card card) {
+        return List.of(abbreviate(card.ticketId(), 15), abbreviate(card.title(), 15), abbreviate(card.reportedStatus().toUpperCase(Locale.ROOT), 15), "");
     }
 
     /** Finds tagged mod villagers, removes stale/duplicate ones, and leaves ordinary villagers untouched. */
@@ -301,9 +339,9 @@ public final class WorkspaceBuilder {
     private void renderSigns(ServerLevel level, BlockPos origin, WorldState state) {
         writeSign(level, origin.offset(12, 1, 10), List.of("BLOCK AGENT", "SPACES", "Enter the", "workspace"));
         writeSign(level, origin.offset(18, 1, 10), List.of("RIGHT-CLICK", "an agent", "to open its", "notebook"));
-        writeSign(level, origin.offset(15, 1, 6), List.of("GOAT CONTROL", "Lead agent", "Tickets + merges", "Right-click Goat"));
+        writeSign(level, origin.offset(15, 1, 6), List.of("GOAT CONTROL", "LEAD AGENT", "TICKETS + REVIEW", "CLICK GOAT/BOARD"));
         String[] status = state.presentationStatus().split(" • ", 2);
-        writeSign(level, origin.offset(15, 1, 7), List.of("SPACE STATUS", status[0], status.length > 1 ? status[1] : "", "Auto-refresh on"));
+        writeSign(level, origin.offset(15, 1, 7), List.of("SPACE STATUS", status[0], status.length > 1 ? status[1] : "", "TEXT + COLOR"));
         writeSign(level, origin.offset(19, 1, 7), List.of("GRAPH LEGEND", "Purple: projects", "Blue: files", "Yellow: tasks"));
         writeSign(level, origin.offset(25, 1, 7), List.of("White: notes", "Glow rods: links", "Glass room =", "knowledge graph"));
     }
@@ -353,6 +391,19 @@ public final class WorkspaceBuilder {
         return state.agents().stream().anyMatch(agent -> agent.id().equals(candidate)) ? candidate : "";
     }
     public static Optional<String> agentIdFor(UUID entityId) { return Optional.ofNullable(AGENT_BY_ENTITY.get(entityId)); }
+    /** Board coordinates are used only to route a player to Goat's existing notebook. */
+    public boolean isTicketBoard(ServerLevel level, BlockPos position) {
+        for (WorkspaceInstallationStore.Snapshot installation : WorkspaceInstallationStore.get(level).installationsFor(level).values()) {
+            BlockPos origin = installation.origin();
+            int relativeX = position.getX() - origin.getX();
+            int relativeY = position.getY() - origin.getY();
+            int relativeZ = position.getZ() - origin.getZ();
+            if (relativeZ >= TICKET_BOARD_Z && relativeZ <= TICKET_BOARD_BACKING_Z
+                && relativeY >= 1 && relativeY <= TICKET_BOARD_HEADER_Y
+                && relativeX >= TICKET_BOARD_MIN_X && relativeX <= TICKET_BOARD_MIN_X + TICKET_BOARD_COLUMN_SPACING * (TicketBoardPlanner.Lane.values().length - 1)) return true;
+        }
+        return false;
+    }
     public record BuildResult(boolean built, boolean refreshed, String message, int agentCount, int nodeCount, int edgeCount) { }
     public record RefreshResult(int refreshedInstallations, int protectedInstallations) { }
     private record AgentStation(Agent agent, BlockPos position) { }
