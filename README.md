@@ -25,16 +25,27 @@ In a world with the mod installed, run:
 
 ```text
 /blockagents onboarding
+/blockagents build
 /blockagents status
 /blockagents agents
 /blockagents graph
 ```
 
-`onboarding` gives the shortest possible introduction and reports whether the local bridge is live. `agents` is the initial, command-driven stand-in for selecting an NPC; it shows each agent's status, detail, and task. `graph` is the debug representation of the observatory. `/blockagents seed` restores the sample workspace at any time.
+`onboarding` gives the shortest possible introduction and reports whether the local bridge is live. `/blockagents build` is the main first-run command: it finds a small clear volume above nearby open ground, then creates an elevated agent workspace, central corridor, and glass-walled graph observatory. It refuses to overwrite non-air blocks, and repeating it refreshes the same installation for that player during the game session.
+
+The workspace populates up to four current agents as stationary named villagers at color-coded stations: green working, red blocked, yellow reviewing, blue complete, and gray idle. The observatory turns up to six graph nodes into floating colored blocks and links known relationships with glowing End Rod paths. `agents` surfaces each agent's full current detail and task, while `graph` provides a compact textual inspection view. `/blockagents seed` restores the sample workspace at any time.
+
+### Five-minute first run
+
+1. Put the mod jar in the Minecraft Fabric `mods` folder and launch or join a world.
+2. Run `/blockagents onboarding` to confirm the local bridge is connected.
+3. Run `/blockagents build` while standing under open sky. The mod builds only inside a clear elevated volume; it will not replace existing blocks.
+4. Point a local orchestrator at `http://127.0.0.1:8787` and publish agent and graph events.
+5. Run `/blockagents build` again to refresh the world installation, then use `/blockagents agents` or `/blockagents graph` for details.
 
 ### Local integration bridge
 
-External agent orchestrators can publish data to the running mod through HTTP. The bridge only listens on localhost, so it is intended for trusted processes on the same computer. It accepts simple flat JSON payloads and returns the current state for visualizers or debugging.
+External agent orchestrators can publish data to the running mod through HTTP. The bridge starts when the Minecraft server/world starts, only listens on localhost, and is intended for trusted processes on the same computer. It accepts simple flat JSON payloads and returns the current state for visualizers or debugging.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
