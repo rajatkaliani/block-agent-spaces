@@ -40,7 +40,7 @@ class GraphFocusResolverTest {
         List<GraphLayout.PlacedNode> layout = GraphLayout.arrange(List.of(node("z"), node("b"), node("a"), node("c")));
 
         assertEquals(List.of("a", "b", "c", "z"), layout.stream().map(placed -> placed.node().id()).toList());
-        assertEquals(new GraphLayout.PlacedNode(node("a"), 19, 2, 2), layout.getFirst());
+        assertEquals(new GraphLayout.PlacedNode(node("a"), 24, 3, 4), layout.getFirst());
     }
 
     @Test void layoutMakesFocusedNodesVisibleBeforeUnrelatedNodes() {
@@ -49,7 +49,22 @@ class GraphFocusResolverTest {
         List<GraphLayout.PlacedNode> layout = GraphLayout.arrange(nodes, java.util.Set.of("focused"));
 
         assertEquals("focused", layout.getFirst().node().id());
-        assertEquals(6, layout.size());
+        assertEquals(7, layout.size());
+    }
+
+    @Test void layoutPlacesTheMostConnectedUnfocusedNodeAtTheCentre() {
+        List<GraphNode> nodes = List.of(node("quiet"), node("hub"), node("leaf-a"), node("leaf-b"));
+        List<GraphEdge> edges = List.of(
+            new GraphEdge("a", "hub", "leaf-a", "references"),
+            new GraphEdge("b", "hub", "leaf-b", "references")
+        );
+
+        List<GraphLayout.PlacedNode> layout = GraphLayout.arrange(nodes, edges, java.util.Set.of());
+
+        assertEquals("hub", layout.getFirst().node().id());
+        assertEquals(24, layout.getFirst().xOffset());
+        assertEquals(3, layout.getFirst().yOffset());
+        assertEquals(4, layout.getFirst().zOffset());
     }
 
     private static Agent agent(String taskId, String ticketId, List<String> graphFocus) {

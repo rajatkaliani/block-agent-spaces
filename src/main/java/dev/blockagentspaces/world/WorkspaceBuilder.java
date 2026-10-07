@@ -17,6 +17,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.Filterable;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Display;
+import net.minecraft.world.entity.Interaction;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.item.DyeColor;
@@ -45,6 +48,8 @@ public final class WorkspaceBuilder {
     private static final int TICKET_BOARD_COLUMN_SPACING = 3;
     private static final int TICKET_BOARD_HEADER_Y = 4;
     private static final Map<UUID, String> AGENT_BY_ENTITY = new HashMap<>();
+    private static final String GRAPH_NODE_TAG_PREFIX = "block_agent_spaces:graph_node:";
+    private static final String GRAPH_EDGE_TAG_PREFIX = "block_agent_spaces:graph_edge:";
 
     public BuildResult build(ServerPlayer player, WorldState state) {
         ServerLevel level = (ServerLevel) player.level();
@@ -75,6 +80,7 @@ public final class WorkspaceBuilder {
         renderTicketBoard(level, origin, state);
         renderTeamLog(level, origin, state);
         renderAgents(level, origin, state);
+        renderGraphEntities(level, origin, state, focusedAgentId);
         store.saveInstallation(level, player.getUUID(), origin, target, focusedAgentId);
 
         String message = refreshed
@@ -101,6 +107,7 @@ public final class WorkspaceBuilder {
             renderTicketBoard(level, origin, state);
             renderTeamLog(level, origin, state);
             renderAgents(level, origin, state);
+            renderGraphEntities(level, origin, state, focusedAgentId);
             store.saveInstallation(level, entry.getKey(), origin, target, focusedAgentId);
             refreshed++;
         }
@@ -139,14 +146,13 @@ public final class WorkspaceBuilder {
             target.put(origin.offset(x, y, z), Blocks.AIR.defaultBlockState());
 
         buildRoom(target, origin, 0, 0, 14, 8, false);
-        buildRoom(target, origin, 17, 0, 30, 8, true);
+        buildObservatory(target, origin);
         buildEntry(target, origin);
         put(target, origin.offset(15, 0, 4), Blocks.LODESTONE);
         put(target, origin.offset(16, 1, 4), Blocks.GLOWSTONE);
         renderGoatControlPoint(target, origin, state);
         renderAgents(target, origin, state);
         renderTicketBoard(target, origin, state);
-        renderGraph(target, origin, state, focusedAgentId);
         renderLegend(target, origin);
         put(target, origin.offset(12, 1, 2), Blocks.LECTERN);
         put(target, origin.offset(15, 1, 7), Blocks.OAK_SIGN);
@@ -165,6 +171,27 @@ public final class WorkspaceBuilder {
         int doorX = glass ? minX : maxX;
         put(target, origin.offset(doorX, 1, (minZ + maxZ) / 2), Blocks.AIR);
         put(target, origin.offset(doorX, 2, (minZ + maxZ) / 2), Blocks.AIR);
+    }
+
+    /** A deliberately dark shell makes the floating graph, rather than Minecraft blocks, the focal point. */
+    private void buildObservatory(Map<BlockPos, BlockState> target, BlockPos origin) {
+        int minX = 17, maxX = 30, minZ = 0, maxZ = 8;
+        for (int x = minX; x <= maxX; x++) for (int z = minZ; z <= maxZ; z++) {
+            put(target, origin.offset(x, 0, z), Blocks.POLISHED_DEEPSLATE);
+            boolean boundary = x == minX || x == maxX || z == minZ || z == maxZ;
+            if (boundary) for (int y = 1; y <= 5; y++) {
+                // The entrance facade remains a dark glass viewing wall; the other sides disappear into black.
+                put(target, origin.offset(x, y, z), x == minX ? Blocks.STAINED_GLASS.black() : Blocks.CONCRETE.black());
+            }
+            put(target, origin.offset(x, 6, z), Blocks.CONCRETE.black());
+        }
+        int doorZ = (minZ + maxZ) / 2;
+        put(target, origin.offset(minX, 1, doorZ), Blocks.AIR);
+        put(target, origin.offset(minX, 2, doorZ), Blocks.AIR);
+        put(target, origin.offset(minX, 3, doorZ), Blocks.AIR);
+        // A thin low-light frame helps players find the observatory without competing with the graph.
+        put(target, origin.offset(minX + 1, 1, doorZ - 1), Blocks.SOUL_LANTERN);
+        put(target, origin.offset(minX + 1, 1, doorZ + 1), Blocks.SOUL_LANTERN);
     }
 
     private void buildEntry(Map<BlockPos, BlockState> target, BlockPos origin) {
@@ -297,23 +324,99 @@ public final class WorkspaceBuilder {
         villager.setPersistenceRequired();
     }
 
-    private void renderGraph(Map<BlockPos, BlockState> target, BlockPos origin, WorldState state, String focusedAgentId) {
+    /**
+     * Renders the knowledge graph as tagged display entities, never as part of the protected
+     * player-edited block structure. Node labels and their colored items float in a dark room;
+     * edge dots use glowing ink items. Minecraft does not expose a stable public API for a
+     * stretched line display in this version, so dotted luminous links are intentional and keep
+     * refreshes/restarts simple and safe.
+     */
+    private void renderGraphEntities(ServerLevel level, BlockPos origin, WorldState state, String focusedAgentId) {
         Optional<Agent> focusedAgent = state.agents().stream().filter(agent -> agent.id().equals(focusedAgentId)).findFirst();
         GraphFocusResolver.Focus focus = focusedAgent.map(agent -> GraphFocusResolver.resolve(agent, state.nodes(), state.edges())).orElse(GraphFocusResolver.Focus.empty());
         boolean dimUnrelated = focusedAgent.isPresent() && focus.hasNodes();
+        clearGraphEntities(level, origin);
         Map<String, BlockPos> positions = new HashMap<>();
-        for (GraphLayout.PlacedNode placed : GraphLayout.arrange(state.nodes(), focus.nodeIds())) {
+        for (GraphLayout.PlacedNode placed : GraphLayout.arrange(state.nodes(), state.edges(), focus.nodeIds())) {
             GraphNode node = placed.node();
             BlockPos pos = origin.offset(placed.xOffset(), placed.yOffset(), placed.zOffset());
             positions.put(node.id(), pos);
-            put(target, pos, nodeBlock(node, !dimUnrelated || focus.includesNode(node.id())));
-            put(target, pos.above(), Blocks.END_ROD);
+            boolean highlighted = !dimUnrelated || focus.includesNode(node.id());
+            spawnGraphNode(level, pos, node, highlighted);
         }
         for (GraphEdge edge : state.edges().stream().sorted(Comparator.comparing(GraphEdge::id)).toList()) {
             BlockPos start = positions.get(edge.sourceId());
             BlockPos end = positions.get(edge.targetId());
-            if (start != null && end != null) drawEdge(target, start, end, !dimUnrelated || focus.includesEdge(edge.id()));
+            if (start != null && end != null) spawnGraphEdge(level, start, end, edge, !dimUnrelated || focus.includesEdge(edge.id()));
         }
+    }
+
+    private void clearGraphEntities(ServerLevel level, BlockPos origin) {
+        AABB bounds = AABB.encapsulatingFullBlocks(origin.offset(17, 1, 0), origin.offset(30, 6, 8)).inflate(1);
+        for (Entity entity : level.getEntities(EntityTypeTest.forClass(Entity.class), bounds, candidate -> isManagedGraphEntity(candidate))) entity.discard();
+    }
+
+    private static boolean isManagedGraphEntity(Entity entity) {
+        return entity.entityTags().stream().anyMatch(tag -> tag.startsWith(GRAPH_NODE_TAG_PREFIX) || tag.startsWith(GRAPH_EDGE_TAG_PREFIX));
+    }
+
+    private void spawnGraphNode(ServerLevel level, BlockPos position, GraphNode node, boolean highlighted) {
+        Display.ItemDisplay icon = createEntity(level, "item_display", Display.ItemDisplay.class);
+        if (icon != null) {
+            icon.setPos(position.getX() + 0.5, position.getY() + 0.1, position.getZ() + 0.5);
+            icon.getSlot(0).set(new ItemStack(nodeIcon(node)));
+            icon.setCustomName(Component.literal(abbreviate(node.label(), 36) + "  [" + node.type() + "]"));
+            icon.setCustomNameVisible(true);
+            icon.setNoGravity(true);
+            icon.setGlowingTag(highlighted);
+            icon.addTag(GRAPH_NODE_TAG_PREFIX + node.id());
+            level.addFreshEntity(icon);
+        }
+        // Display entities are visual-only. An invisible Interaction entity gives every node a
+        // consistent click target without making villagers or the room geometry interactive.
+        Interaction hitbox = createEntity(level, "interaction", Interaction.class);
+        if (hitbox != null) {
+            hitbox.setPos(position.getX() + 0.5, position.getY(), position.getZ() + 0.5);
+            hitbox.setNoGravity(true);
+            hitbox.addTag(GRAPH_NODE_TAG_PREFIX + node.id());
+            level.addFreshEntity(hitbox);
+        }
+    }
+
+    private void spawnGraphEdge(ServerLevel level, BlockPos start, BlockPos end, GraphEdge edge, boolean highlighted) {
+        int steps = Math.max(Math.max(Math.abs(end.getX() - start.getX()), Math.abs(end.getY() - start.getY())), Math.abs(end.getZ() - start.getZ()));
+        // Keep the entity count bounded while still leaving a clearly continuous-looking dotted link.
+        int dots = Math.min(steps - 1, 5);
+        for (int i = 1; i <= dots; i++) {
+            double fraction = i / (double) (dots + 1);
+            Display.ItemDisplay dot = createEntity(level, "item_display", Display.ItemDisplay.class);
+            if (dot == null) return;
+            dot.setPos(start.getX() + 0.5 + (end.getX() - start.getX()) * fraction, start.getY() + 0.1 + (end.getY() - start.getY()) * fraction, start.getZ() + 0.5 + (end.getZ() - start.getZ()) * fraction);
+            dot.getSlot(0).set(new ItemStack(Items.GLOW_INK_SAC));
+            dot.setNoGravity(true);
+            dot.setGlowingTag(highlighted);
+            dot.addTag(GRAPH_EDGE_TAG_PREFIX + edge.id());
+            level.addFreshEntity(dot);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T extends Entity> T createEntity(ServerLevel level, String path, Class<T> expectedType) {
+        EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.withDefaultNamespace(path));
+        Entity entity = type == null ? null : type.create(level, EntitySpawnReason.COMMAND);
+        return expectedType.isInstance(entity) ? (T) entity : null;
+    }
+
+    private static net.minecraft.world.item.Item nodeIcon(GraphNode node) {
+        return switch (node.type().toLowerCase(Locale.ROOT)) {
+            case "task", "ticket" -> Items.GOLD_INGOT;
+            case "file" -> Items.LAPIS_LAZULI;
+            case "project" -> Items.AMETHYST_SHARD;
+            case "review" -> Items.EMERALD;
+            case "workspace" -> Items.COMPASS;
+            case "history" -> Items.WRITABLE_BOOK;
+            default -> Items.QUARTZ;
+        };
     }
 
     private void renderLegend(Map<BlockPos, BlockState> target, BlockPos origin) {
@@ -321,14 +424,6 @@ public final class WorkspaceBuilder {
         put(target, origin.offset(25, 1, 7), Blocks.OAK_SIGN);
     }
 
-    private void drawEdge(Map<BlockPos, BlockState> target, BlockPos start, BlockPos end, boolean highlighted) {
-        int steps = Math.max(Math.max(Math.abs(end.getX() - start.getX()), Math.abs(end.getY() - start.getY())), Math.abs(end.getZ() - start.getZ()));
-        for (int i = 1; i < steps; i++) {
-            double fraction = i / (double) steps;
-            BlockPos pos = new BlockPos((int) Math.round(start.getX() + (end.getX() - start.getX()) * fraction), (int) Math.round(start.getY() + (end.getY() - start.getY()) * fraction), (int) Math.round(start.getZ() + (end.getZ() - start.getZ()) * fraction));
-            if (target.getOrDefault(pos, Blocks.AIR.defaultBlockState()).isAir()) put(target, pos, highlighted ? Blocks.END_ROD : Blocks.TINTED_GLASS);
-        }
-    }
 
     private void apply(ServerLevel level, Map<BlockPos, BlockState> target) {
         target.forEach((position, state) -> {
@@ -369,21 +464,6 @@ public final class WorkspaceBuilder {
         }
     }
 
-    private Block nodeBlock(GraphNode node, boolean highlighted) {
-        if (!highlighted) return switch (node.type().toLowerCase()) {
-            case "task", "ticket" -> Blocks.STAINED_GLASS.yellow();
-            case "file" -> Blocks.STAINED_GLASS.blue();
-            case "project" -> Blocks.STAINED_GLASS.purple();
-            default -> Blocks.TINTED_GLASS;
-        };
-        return switch (node.type().toLowerCase()) {
-            case "task", "ticket" -> Blocks.CONCRETE.yellow();
-            case "file" -> Blocks.CONCRETE.blue();
-            case "project" -> Blocks.CONCRETE.purple();
-            default -> Blocks.SEA_LANTERN;
-        };
-    }
-
     private static void put(Map<BlockPos, BlockState> target, BlockPos pos, Block block) { target.put(pos, block.defaultBlockState()); }
     private static String describe(BlockPos position) { return position.getX() + ", " + position.getY() + ", " + position.getZ(); }
     private static String selectedAgentId(String candidate, WorldState state) {
@@ -391,6 +471,25 @@ public final class WorkspaceBuilder {
         return state.agents().stream().anyMatch(agent -> agent.id().equals(candidate)) ? candidate : "";
     }
     public static Optional<String> agentIdFor(UUID entityId) { return Optional.ofNullable(AGENT_BY_ENTITY.get(entityId)); }
+    /**
+     * Resolves only a graph node that belongs to the clicking player's own installed observatory.
+     * A graph display in another player's nearby installation is never a valid interaction target.
+     */
+    public Optional<GraphNode> graphNodeFor(ServerPlayer player, Entity entity, WorldState state) {
+        if (!(player.level() instanceof ServerLevel level)) return Optional.empty();
+        Optional<WorkspaceInstallationStore.Snapshot> installation = WorkspaceInstallationStore.get(level).installationFor(level, player.getUUID());
+        if (installation.isEmpty() || !insideObservatory(installation.get().origin(), entity.blockPosition())) return Optional.empty();
+        Optional<String> nodeId = entity.entityTags().stream().filter(tag -> tag.startsWith(GRAPH_NODE_TAG_PREFIX))
+            .map(tag -> tag.substring(GRAPH_NODE_TAG_PREFIX.length())).findFirst();
+        return nodeId.flatMap(id -> state.nodes().stream().filter(node -> node.id().equals(id)).findFirst());
+    }
+
+    private static boolean insideObservatory(BlockPos origin, BlockPos position) {
+        int x = position.getX() - origin.getX();
+        int y = position.getY() - origin.getY();
+        int z = position.getZ() - origin.getZ();
+        return x >= 17 && x <= 30 && y >= 0 && y <= 6 && z >= 0 && z <= 8;
+    }
     /** Board coordinates are used only to route a player to Goat's existing notebook. */
     public boolean isTicketBoard(ServerLevel level, BlockPos position) {
         for (WorkspaceInstallationStore.Snapshot installation : WorkspaceInstallationStore.get(level).installationsFor(level).values()) {
