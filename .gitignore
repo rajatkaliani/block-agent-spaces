@@ -5,3 +5,4 @@ run/
 .idea/
 .vscode/
 *.iml
+__pycache__/
