@@ -33,7 +33,7 @@ In a world with the mod installed, run:
 
 `onboarding` gives the shortest possible introduction and reports whether the local bridge is live. `/blockagents build` is the main first-run command: it finds a small clear volume above nearby open ground, then creates an elevated agent workspace, central corridor, and glass-walled graph observatory. It refuses to overwrite non-air blocks, and repeating it refreshes the same installation for that player during the game session.
 
-The workspace populates up to four current agents as stationary named villagers at color-coded stations: green working, red blocked, yellow reviewing, blue complete, and gray idle. The observatory turns up to six graph nodes into floating colored blocks and links known relationships with glowing End Rod paths. `agents` surfaces each agent's full current detail and task, while `graph` provides a compact textual inspection view. `/blockagents seed` restores the sample workspace at any time.
+The workspace populates up to four current agents as stationary named villagers at color-coded stations: green working, red blocked, yellow reviewing, blue complete, and gray idle. **Right-click a workspace villager** to see its state and task in the action bar, followed by its detail, graph focus, and latest message in chat—no command required. The observatory turns up to six graph nodes into floating colored blocks and links known relationships with glowing End Rod paths. Two in-world legend signs explain the node colors and edge glow. `agents` surfaces each agent's full current detail and task, while `graph` provides a compact textual inspection view. `/blockagents seed` restores the sample workspace at any time.
 
 ### Five-minute first run
 
@@ -53,7 +53,7 @@ Once agents are published, these commands make the world an active workspace rat
 /blockagents refresh
 ```
 
-`inspect` resolves either an agent ID or its display name and shows its state, current task, latest message, and linked graph elements. `message` records a bounded player-to-agent message in the same local state exposed at `/v1/messages`, ready for a local orchestrator to poll. It rejects unknown names, empty text, and messages over 400 characters. `refresh` redraws the current player's existing installation from the newest bridge state without looking for or altering another build location.
+`inspect` resolves either an agent ID or its display name and shows its state, current task, latest message, and linked graph elements. `message` records a bounded player-to-agent message in the same local state exposed at `/v1/messages`, ready for a local orchestrator to poll. It rejects unknown names, empty text, and messages over 400 characters. `refresh` redraws the current player's existing installation from the newest bridge state without looking for or altering another build location, then reports the number of agent stations, graph nodes, and glowing links refreshed.
 
 ### Local integration bridge
 
