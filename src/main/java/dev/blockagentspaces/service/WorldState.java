@@ -6,6 +6,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 /** Thread-safe source of truth for the bridge and Minecraft presentation layer. */
 public final class WorldState {
@@ -17,6 +18,9 @@ public final class WorldState {
     private final List<BridgeEvent> events = new CopyOnWriteArrayList<>();
     private final Map<String, Long> acknowledgements = new ConcurrentHashMap<>();
     private final AtomicLong nextEventSequence = new AtomicLong();
+    private final List<Consumer<BridgeEvent>> listeners = new CopyOnWriteArrayList<>();
+    private volatile boolean bridgeAvailable;
+    private volatile boolean externalUpdates;
 
     public void putAgent(Agent agent) { agents.put(agent.id(), agent); event("agent.updated", agent.id()); }
     public void putTask(Task task) { tasks.put(task.id(), task); event("task.updated", task.id()); }
@@ -37,6 +41,23 @@ public final class WorldState {
         acknowledgements.merge(consumer.trim(), cursor, Math::max);
     }
     public long acknowledgementFor(String consumer) { return acknowledgements.getOrDefault(consumer, 0L); }
+    public void addListener(Consumer<BridgeEvent> listener) { listeners.add(Objects.requireNonNull(listener)); }
+    public boolean hasExternalUpdates() { return externalUpdates; }
+    public boolean bridgeAvailable() { return bridgeAvailable; }
+    public String presentationStatus() {
+        if (externalUpdates) return "LIVE LOCAL UPDATES";
+        return bridgeAvailable ? "DEMO DATA • BRIDGE READY" : "DEMO DATA • BRIDGE OFFLINE";
+    }
+    public void setBridgeAvailable(boolean available) {
+        if (bridgeAvailable == available) return;
+        bridgeAvailable = available;
+        event("presentation.updated", "bridge");
+    }
+    public void markExternalUpdate() {
+        if (externalUpdates) return;
+        externalUpdates = true;
+        event("presentation.updated", "local-bridge");
+    }
 
     public void seedExample() {
         putTask(new Task("ticket-101", "Scaffold Fabric mod", "Create the first runnable mod", "in_progress", Instant.now()));
@@ -60,7 +81,12 @@ public final class WorldState {
     }
 
     private void event(String type, String id) {
-        events.add(new BridgeEvent(nextEventSequence.incrementAndGet(), type, id, Instant.now()));
+        BridgeEvent event = new BridgeEvent(nextEventSequence.incrementAndGet(), type, id, Instant.now());
+        events.add(event);
         if (events.size() > 500) events.remove(0);
+        for (Consumer<BridgeEvent> listener : listeners) {
+            try { listener.accept(event); }
+            catch (RuntimeException ignored) { }
+        }
     }
 }

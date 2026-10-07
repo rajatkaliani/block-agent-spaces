@@ -51,6 +51,20 @@ final class WorkspaceInstallationStore extends SavedData {
     Optional<Snapshot> installationFor(ServerLevel level, UUID playerId) {
         Installation installation = installations.get(playerId.toString());
         if (installation == null || !installation.dimension.equals(level.dimension().identifier().toString())) return Optional.empty();
+        return Optional.of(snapshot(installation));
+    }
+
+    Map<UUID, Snapshot> installationsFor(ServerLevel level) {
+        Map<UUID, Snapshot> snapshots = new HashMap<>();
+        installations.forEach((playerId, installation) -> {
+            if (!installation.dimension.equals(level.dimension().identifier().toString())) return;
+            try { snapshots.put(UUID.fromString(playerId), snapshot(installation)); }
+            catch (IllegalArgumentException ignored) { }
+        });
+        return Map.copyOf(snapshots);
+    }
+
+    private Snapshot snapshot(Installation installation) {
         Map<BlockPos, BlockState> expected = new HashMap<>();
         installation.ownedBlocks.forEach((packedPosition, blockId) -> {
             try {
@@ -61,7 +75,7 @@ final class WorkspaceInstallationStore extends SavedData {
                 // A corrupt or obsolete entry is not trusted as mod ownership.
             }
         });
-        return Optional.of(new Snapshot(new BlockPos(installation.originX, installation.originY, installation.originZ), expected));
+        return new Snapshot(new BlockPos(installation.originX, installation.originY, installation.originZ), expected);
     }
 
     void saveInstallation(ServerLevel level, UUID playerId, BlockPos origin, Map<BlockPos, BlockState> expected) {

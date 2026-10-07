@@ -4,6 +4,7 @@ import dev.blockagentspaces.model.*;
 import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 class WorldStateTest {
@@ -30,5 +31,15 @@ class WorldStateTest {
         assertFalse(state.agents().isEmpty());
         assertFalse(state.nodes().isEmpty());
         assertFalse(state.edges().isEmpty());
+    }
+    @Test void publishesPresentationChangesForServerThreadReconciliation() {
+        WorldState state = new WorldState();
+        AtomicReference<String> eventType = new AtomicReference<>();
+        state.addListener(event -> eventType.set(event.type()));
+        state.setBridgeAvailable(true);
+        assertEquals("presentation.updated", eventType.get());
+        assertEquals("DEMO DATA • BRIDGE READY", state.presentationStatus());
+        state.markExternalUpdate();
+        assertEquals("LIVE LOCAL UPDATES", state.presentationStatus());
     }
 }

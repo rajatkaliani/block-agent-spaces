@@ -87,7 +87,7 @@ public final class BlockAgentsCommands {
         return Command.SINGLE_SUCCESS;
     }
     private static int status(CommandSourceStack source, WorldState state, LocalBridge bridge) {
-        tell(source, "Bridge " + (bridge.isRunning() ? "connected" : "offline") + " | " + state.agents().size() + " agents | " + state.tasks().size() + " tasks | " + state.nodes().size() + " nodes | " + state.edges().size() + " edges.");
+        tell(source, "Bridge " + (bridge.isRunning() ? "connected" : "offline") + " | " + state.presentationStatus() + " | " + state.agents().size() + " agents | " + state.tasks().size() + " tasks | " + state.nodes().size() + " nodes | " + state.edges().size() + " edges.");
         return Command.SINGLE_SUCCESS;
     }
     private static int agents(CommandSourceStack source, WorldState state) {

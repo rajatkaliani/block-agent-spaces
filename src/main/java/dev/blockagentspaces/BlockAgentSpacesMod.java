@@ -4,9 +4,12 @@ import dev.blockagentspaces.bridge.LocalBridge;
 import dev.blockagentspaces.command.BlockAgentsCommands;
 import dev.blockagentspaces.service.WorldState;
 import dev.blockagentspaces.service.AgentCommunicationService;
+import dev.blockagentspaces.service.WorkspaceAutoRefresher;
 import dev.blockagentspaces.network.ConversationPayloads;
+import dev.blockagentspaces.world.WorkspaceBuilder;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import org.slf4j.Logger;
@@ -16,7 +19,8 @@ public final class BlockAgentSpacesMod implements ModInitializer {
     public static final String MOD_ID = "block_agent_spaces";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     private final WorldState worldState = new WorldState();
-    private final LocalBridge bridge = new LocalBridge(worldState);
+    private final WorkspaceAutoRefresher autoRefresher = new WorkspaceAutoRefresher(worldState, new WorkspaceBuilder());
+    private final LocalBridge bridge = new LocalBridge(worldState, autoRefresher::requestExternalUpdate);
 
     @Override
     public void onInitialize() {
@@ -28,15 +32,24 @@ public final class BlockAgentSpacesMod implements ModInitializer {
         });
         BlockAgentsCommands.register(worldState, bridge);
         AgentInteractionHandler.register(worldState);
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            WorkspaceAutoRefresher.RefreshReport report = autoRefresher.tick(server);
+            if (report.protectedInstallations() > 0) LOGGER.warn("Skipped {} Block Agent Spaces refresh(es) because player changes were protected", report.protectedInstallations());
+        });
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             worldState.seedExample();
             try {
                 bridge.start();
+                worldState.setBridgeAvailable(true);
                 LOGGER.info("Block Agent Spaces bridge listening on http://127.0.0.1:{}", LocalBridge.PORT);
             } catch (Exception e) {
+                worldState.setBridgeAvailable(false);
                 LOGGER.error("Could not start local bridge; in-game commands remain available", e);
             }
         });
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> bridge.stop());
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            bridge.stop();
+            worldState.setBridgeAvailable(false);
+        });
     }
 }

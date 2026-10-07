@@ -40,7 +40,7 @@ The workspace populates up to four current agents as stationary named villagers 
 2. Find a level 31×11 patch of solid ground with open air above it, then stand near its middle.
 3. Run `/blockagents start`. It seeds the demo, validates the patch, builds the complete space around you, and opens Goat's dashboard.
 4. Point a local orchestrator at `http://127.0.0.1:8787` and publish agent and graph events.
-5. Right-click an agent to open its notebook. Use `/blockagents build` only when you want to refresh the existing generated installation from the newest bridge state.
+5. Right-click an agent to open its notebook. Bridge updates are reflected in the installed space automatically after a short quiet moment; use `/blockagents build` only when you want an explicit manual refresh.
 
 ### Copy-paste bridge quickstart
 
@@ -121,6 +121,12 @@ curl -X POST http://127.0.0.1:8787/v1/events/ack \
 ```
 
 The event stream is an outbox signal, not a copy of every payload. When it reports `message.created`, fetch `/v1/messages` to read the message body; when it reports an agent, task, node, or edge update, fetch the matching endpoint or a snapshot. The in-memory event history retains the newest 500 events, so consumers should poll and persist their own cursor while the world is running.
+
+### Automatic in-world refresh
+
+The local bridge only changes `WorldState`; it never writes Minecraft blocks from an HTTP worker thread. Each bridge update is coalesced for a few server ticks, then the Minecraft server thread refreshes installed Block Agent Spaces locations. Managed agent stations, tagged NPC labels and positions, graph nodes and links, the conversation lectern, and the Goat status sign update together. Stale tagged NPCs and obsolete graph blocks are cleaned up as part of that reconciliation.
+
+The Goat control point visibly says either `DEMO DATA • BRIDGE READY`, `DEMO DATA • BRIDGE OFFLINE`, or `LIVE LOCAL UPDATES`. “Live” means a local process has posted to this mod's loopback bridge; it does not claim that any particular agent product is connected. If a player changes any recorded generated block, automatic and manual refreshes skip that installation rather than overwrite the change.
 
 See [the example payloads](examples/bridge-payloads.json) for each domain object. The initial HTTP event feed is deliberately compatible with polling; a true WebSocket/SSE transport can be added behind the same `WorldState` service without changing the game-facing domain model.
 
