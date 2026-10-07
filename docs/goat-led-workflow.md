@@ -230,6 +230,16 @@ actions such as “request a reassignment” should be expressed as player
 messages or explicitly designed command resources—not hidden side effects of
 clicking a UI control.
 
+## Goat control board
+
+The physical board next to Goat is a compact, read-only summary of adapter-
+reported ticket state. It has Ready, Active, Blocked, Review, and Accepted
+columns and shows at most three stable-ID-sorted tickets in each. Its text
+labels and every card's reported status remain readable without relying on
+color. Clicking the board opens Goat's existing notebook and focuses that
+player's observatory on Goat; it does not create tickets, assign work, accept
+changes, or merge code. Those remain explicit, adapter-confirmed actions.
+
 ## Knowledge graph mapping
 
 The observatory explains the work, not only the workers:

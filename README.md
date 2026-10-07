@@ -34,6 +34,8 @@ If the spot is unsuitable, the game names the first issue—unsafe ground, uneve
 
 The workspace populates up to four current agents as stationary named villagers at color-coded stations: green working, red blocked, yellow reviewing, blue complete, and gray idle. **Right-click a workspace villager** to open its notebook and focus *your* observatory on that agent—no command required. The focus starts with the agent's published graph-focus IDs, falls back to its ticket and task, then includes one bounded relationship hop. Related nodes and links stay bright; unrelated items dim while preserving their project/file/task colors. The **Full graph** notebook button clears only your installation's saved selection. The observatory has six stable, ID-sorted node slots, so a bridge refresh cannot shuffle the room because of map iteration order.
 
+Near Goat, a physical ticket board presents five readable, text-labeled columns: **Ready**, **Active**, **Blocked**, **Review**, and **Accepted**. Each has at most three ID-sorted cards, and every card says its adapter-reported status in words; colors are only a secondary cue. The board's `ADAPTER REPORTED` label is intentional: Block Agent Spaces shows status supplied by a local orchestrator and never claims it performed a Git merge, accepted a ticket, or ran an agent. Right-click any part of the board to open Goat's notebook and focus the graph room on Goat.
+
 ### Five-minute first run
 
 1. Put the mod jar in the Minecraft Fabric `mods` folder and launch or join a world.
