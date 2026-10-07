@@ -8,7 +8,10 @@
   "contact": { "sources": "https://github.com/rajatkaliani/block-agent-spaces" },
   "license": "MIT",
   "environment": "*",
-  "entrypoints": { "main": ["dev.blockagentspaces.BlockAgentSpacesMod"] },
+  "entrypoints": {
+    "main": ["dev.blockagentspaces.BlockAgentSpacesMod"],
+    "client": ["dev.blockagentspaces.client.BlockAgentSpacesClient"]
+  },
   "depends": {
     "fabricloader": ">=0.19.5",
     "fabric-api": "*",

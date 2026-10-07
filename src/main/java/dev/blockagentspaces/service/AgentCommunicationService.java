@@ -29,11 +29,15 @@ public final class AgentCommunicationService {
     }
 
     public SendResult sendFromMinecraft(String reference, String body) {
+        return sendFromPlayer(reference, "minecraft-player", body);
+    }
+    public SendResult sendFromPlayer(String reference, String sender, String body) {
         Optional<Agent> agent = findAgent(reference);
         if (agent.isEmpty()) return SendResult.error("No agent named '" + safeLabel(reference) + "' is currently published.");
         if (body == null || body.isBlank()) return SendResult.error("Message text cannot be empty.");
         if (body.length() > MAX_MESSAGE_LENGTH) return SendResult.error("Message is too long; keep it under " + MAX_MESSAGE_LENGTH + " characters.");
-        AgentMessage message = new AgentMessage("minecraft-" + UUID.randomUUID(), "minecraft-player", agent.get().id(), body.trim(), Instant.now());
+        String safeSender = sender == null || sender.isBlank() ? "minecraft-player" : sender.trim().substring(0, Math.min(sender.trim().length(), 64));
+        AgentMessage message = new AgentMessage("minecraft-" + UUID.randomUUID(), safeSender, agent.get().id(), body.trim(), Instant.now());
         state.addMessage(message);
         return SendResult.success(message, agent.get());
     }

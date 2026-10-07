@@ -10,6 +10,16 @@ base { archivesName = project.archives_base_name }
 
 repositories { }
 
+loom {
+    splitEnvironmentSourceSets()
+    mods {
+        "block_agent_spaces" {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
