@@ -19,6 +19,12 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.entity.SignText;
 import net.minecraft.world.level.block.entity.SignTextSlot;
+import net.minecraft.world.level.block.entity.LecternBlockEntity;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.server.network.Filterable;
+import net.minecraft.world.item.component.WrittenBookContent;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.*;
@@ -46,6 +52,7 @@ public final class WorkspaceBuilder {
         renderAgents(level, origin, state);
         renderGraph(level, origin, state);
         renderLegend(level, origin);
+        renderTeamLog(level, origin, state);
         installations.put(player.getUUID(), origin);
         return new BuildResult(true, refreshed, "Agent workspace and graph observatory " + (refreshed ? "refreshed" : "built") + " nearby.", state.agents().size(), state.nodes().size(), state.edges().size());
     }
@@ -138,6 +145,22 @@ public final class WorkspaceBuilder {
         writeSign(level, origin.offset(19, 1, 7), List.of("GRAPH LEGEND", "Purple: projects", "Blue: files", "Yellow: tasks"));
         writeSign(level, origin.offset(25, 1, 7), List.of("White: notes", "Glow rods: links", "Right-click agents", "for live context"));
     }
+
+    private void renderTeamLog(ServerLevel level, BlockPos origin, WorldState state) {
+        BlockPos lecternPos = origin.offset(12, 1, 2);
+        place(level, lecternPos, Blocks.LECTERN);
+        if (level.getBlockEntity(lecternPos) instanceof LecternBlockEntity lectern) {
+            List<String> entries = state.messages().stream().skip(Math.max(0, state.messages().size() - 8)).map(message ->
+                message.from() + " → " + message.to() + ": " + abbreviate(message.body(), 180)).toList();
+            if (entries.isEmpty()) entries = List.of("No team messages yet.", "Use /blockagents message <agent> <text>.", "Refresh the workspace to update this book.");
+            List<Filterable<Component>> pages = entries.stream().map(line -> (Component) Component.literal(line)).map(Filterable::passThrough).toList();
+            ItemStack book = new ItemStack(Items.WRITTEN_BOOK);
+            book.set(DataComponents.WRITTEN_BOOK_CONTENT, new WrittenBookContent(Filterable.passThrough("Team Conversation"), "Goat", 0, pages, false));
+            lectern.setBook(book);
+        }
+    }
+
+    private static String abbreviate(String text, int max) { return text.length() <= max ? text : text.substring(0, max - 1) + "…"; }
 
     private void writeSign(ServerLevel level, BlockPos pos, List<String> lines) {
         place(level, pos, Blocks.OAK_SIGN);
