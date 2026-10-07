@@ -3,6 +3,8 @@ package dev.blockagentspaces.world;
 import dev.blockagentspaces.model.Agent;
 import dev.blockagentspaces.model.GraphEdge;
 import dev.blockagentspaces.model.GraphNode;
+import dev.blockagentspaces.graph.GraphFocusResolver;
+import dev.blockagentspaces.graph.GraphLayout;
 import dev.blockagentspaces.service.WorldState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -57,7 +59,8 @@ public final class WorkspaceBuilder {
             previous = Map.of();
         }
 
-        Map<BlockPos, BlockState> target = createLayout(origin, state);
+        String focusedAgentId = selectedAgentId(saved.map(WorkspaceInstallationStore.Snapshot::focusedAgentId).orElse(""), state);
+        Map<BlockPos, BlockState> target = createLayout(origin, state, focusedAgentId);
         String conflict = ownershipConflict(level, target, previous);
         if (conflict != null) return new BuildResult(false, refreshed, conflict, 0, 0, 0);
 
@@ -65,7 +68,7 @@ public final class WorkspaceBuilder {
         renderSigns(level, origin, state);
         renderTeamLog(level, origin, state);
         renderAgents(level, origin, state);
-        store.saveInstallation(level, player.getUUID(), origin, target);
+        store.saveInstallation(level, player.getUUID(), origin, target, focusedAgentId);
 
         String message = refreshed
             ? "Block Agent Spaces refreshed at its existing entrance."
@@ -80,7 +83,8 @@ public final class WorkspaceBuilder {
         int protectedFromOverwrite = 0;
         for (Map.Entry<UUID, WorkspaceInstallationStore.Snapshot> entry : store.installationsFor(level).entrySet()) {
             BlockPos origin = entry.getValue().origin();
-            Map<BlockPos, BlockState> target = createLayout(origin, state);
+            String focusedAgentId = selectedAgentId(entry.getValue().focusedAgentId(), state);
+            Map<BlockPos, BlockState> target = createLayout(origin, state, focusedAgentId);
             if (ownershipConflict(level, target, entry.getValue().expected()) != null) {
                 protectedFromOverwrite++;
                 continue;
@@ -89,7 +93,7 @@ public final class WorkspaceBuilder {
             renderSigns(level, origin, state);
             renderTeamLog(level, origin, state);
             renderAgents(level, origin, state);
-            store.saveInstallation(level, entry.getKey(), origin, target);
+            store.saveInstallation(level, entry.getKey(), origin, target, focusedAgentId);
             refreshed++;
         }
         return new RefreshResult(refreshed, protectedFromOverwrite);
@@ -108,7 +112,19 @@ public final class WorkspaceBuilder {
         return null;
     }
 
-    private Map<BlockPos, BlockState> createLayout(BlockPos origin, WorldState state) {
+    /** Stores focus before a later server-tick reconciliation; this method never writes a block. */
+    public boolean focusInstallation(ServerPlayer player, String agentId) {
+        if (!(player.level() instanceof ServerLevel level)) return false;
+        return WorkspaceInstallationStore.get(level).focusInstallation(level, player.getUUID(), agentId);
+    }
+
+    /** Clears only this player's persisted observatory selection. */
+    public boolean clearInstallationFocus(ServerPlayer player) {
+        if (!(player.level() instanceof ServerLevel level)) return false;
+        return WorkspaceInstallationStore.get(level).clearFocus(level, player.getUUID());
+    }
+
+    private Map<BlockPos, BlockState> createLayout(BlockPos origin, WorldState state, String focusedAgentId) {
         Map<BlockPos, BlockState> target = new HashMap<>();
         // Record the full clear envelope. It lets future rebuilds distinguish our empty space from player changes.
         for (int x = 0; x < FlatPatchPlanner.WIDTH; x++) for (int y = 0; y < HEIGHT; y++) for (int z = 0; z < FlatPatchPlanner.DEPTH; z++)
@@ -121,7 +137,7 @@ public final class WorkspaceBuilder {
         put(target, origin.offset(16, 1, 4), Blocks.GLOWSTONE);
         renderGoatControlPoint(target, origin, state);
         renderAgents(target, origin, state);
-        renderGraph(target, origin, state);
+        renderGraph(target, origin, state, focusedAgentId);
         renderLegend(target, origin);
         put(target, origin.offset(12, 1, 2), Blocks.LECTERN);
         put(target, origin.offset(15, 1, 7), Blocks.OAK_SIGN);
@@ -243,20 +259,22 @@ public final class WorkspaceBuilder {
         villager.setPersistenceRequired();
     }
 
-    private void renderGraph(Map<BlockPos, BlockState> target, BlockPos origin, WorldState state) {
-        List<GraphNode> nodes = state.nodes().stream().limit(6).toList();
+    private void renderGraph(Map<BlockPos, BlockState> target, BlockPos origin, WorldState state, String focusedAgentId) {
+        Optional<Agent> focusedAgent = state.agents().stream().filter(agent -> agent.id().equals(focusedAgentId)).findFirst();
+        GraphFocusResolver.Focus focus = focusedAgent.map(agent -> GraphFocusResolver.resolve(agent, state.nodes(), state.edges())).orElse(GraphFocusResolver.Focus.empty());
+        boolean dimUnrelated = focusedAgent.isPresent() && focus.hasNodes();
         Map<String, BlockPos> positions = new HashMap<>();
-        for (int i = 0; i < nodes.size(); i++) {
-            GraphNode node = nodes.get(i);
-            BlockPos pos = origin.offset(19 + (i % 3) * 4, 2 + (i / 3) * 2, 2 + (i % 2) * 4);
+        for (GraphLayout.PlacedNode placed : GraphLayout.arrange(state.nodes())) {
+            GraphNode node = placed.node();
+            BlockPos pos = origin.offset(placed.xOffset(), placed.yOffset(), placed.zOffset());
             positions.put(node.id(), pos);
-            put(target, pos, nodeBlock(node));
+            put(target, pos, nodeBlock(node, !dimUnrelated || focus.includesNode(node.id())));
             put(target, pos.above(), Blocks.END_ROD);
         }
-        for (GraphEdge edge : state.edges()) {
+        for (GraphEdge edge : state.edges().stream().sorted(Comparator.comparing(GraphEdge::id)).toList()) {
             BlockPos start = positions.get(edge.sourceId());
             BlockPos end = positions.get(edge.targetId());
-            if (start != null && end != null) drawEdge(target, start, end);
+            if (start != null && end != null) drawEdge(target, start, end, !dimUnrelated || focus.includesEdge(edge.id()));
         }
     }
 
@@ -265,12 +283,12 @@ public final class WorkspaceBuilder {
         put(target, origin.offset(25, 1, 7), Blocks.OAK_SIGN);
     }
 
-    private void drawEdge(Map<BlockPos, BlockState> target, BlockPos start, BlockPos end) {
+    private void drawEdge(Map<BlockPos, BlockState> target, BlockPos start, BlockPos end, boolean highlighted) {
         int steps = Math.max(Math.max(Math.abs(end.getX() - start.getX()), Math.abs(end.getY() - start.getY())), Math.abs(end.getZ() - start.getZ()));
         for (int i = 1; i < steps; i++) {
             double fraction = i / (double) steps;
             BlockPos pos = new BlockPos((int) Math.round(start.getX() + (end.getX() - start.getX()) * fraction), (int) Math.round(start.getY() + (end.getY() - start.getY()) * fraction), (int) Math.round(start.getZ() + (end.getZ() - start.getZ()) * fraction));
-            if (target.getOrDefault(pos, Blocks.AIR.defaultBlockState()).isAir()) put(target, pos, Blocks.END_ROD);
+            if (target.getOrDefault(pos, Blocks.AIR.defaultBlockState()).isAir()) put(target, pos, highlighted ? Blocks.END_ROD : Blocks.TINTED_GLASS);
         }
     }
 
@@ -313,7 +331,13 @@ public final class WorkspaceBuilder {
         }
     }
 
-    private Block nodeBlock(GraphNode node) {
+    private Block nodeBlock(GraphNode node, boolean highlighted) {
+        if (!highlighted) return switch (node.type().toLowerCase()) {
+            case "task", "ticket" -> Blocks.STAINED_GLASS.yellow();
+            case "file" -> Blocks.STAINED_GLASS.blue();
+            case "project" -> Blocks.STAINED_GLASS.purple();
+            default -> Blocks.TINTED_GLASS;
+        };
         return switch (node.type().toLowerCase()) {
             case "task", "ticket" -> Blocks.CONCRETE.yellow();
             case "file" -> Blocks.CONCRETE.blue();
@@ -324,6 +348,10 @@ public final class WorkspaceBuilder {
 
     private static void put(Map<BlockPos, BlockState> target, BlockPos pos, Block block) { target.put(pos, block.defaultBlockState()); }
     private static String describe(BlockPos position) { return position.getX() + ", " + position.getY() + ", " + position.getZ(); }
+    private static String selectedAgentId(String candidate, WorldState state) {
+        if (candidate == null || candidate.isBlank()) return "";
+        return state.agents().stream().anyMatch(agent -> agent.id().equals(candidate)) ? candidate : "";
+    }
     public static Optional<String> agentIdFor(UUID entityId) { return Optional.ofNullable(AGENT_BY_ENTITY.get(entityId)); }
     public record BuildResult(boolean built, boolean refreshed, String message, int agentCount, int nodeCount, int edgeCount) { }
     public record RefreshResult(int refreshedInstallations, int protectedInstallations) { }

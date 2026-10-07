@@ -33,6 +33,7 @@ final class ConversationScreen extends Screen {
     private final List<NotebookMessage> messages;
     private EditBox draft;
     private Button sendButton;
+    private Button clearFocusButton;
 
     ConversationScreen(ConversationPayloads.Open context) {
         super(Component.literal(safe(context.name()) + " notebook"));
@@ -46,7 +47,8 @@ final class ConversationScreen extends Screen {
         int panelX = (width - panelWidth) / 2;
         int composeY = Math.max(138, height - 48);
         int sendWidth = 58;
-        int draftWidth = Math.max(80, panelWidth - sendWidth - 18);
+        int focusWidth = 82;
+        int draftWidth = Math.max(80, panelWidth - sendWidth - focusWidth - 24);
 
         draft = new EditBox(font, panelX + 8, composeY, draftWidth, 20, Component.literal("Message " + safe(context.name())));
         draft.setMaxLength(MAX_MESSAGE_LENGTH);
@@ -58,6 +60,10 @@ final class ConversationScreen extends Screen {
                 .bounds(panelX + panelWidth - sendWidth - 8, composeY, sendWidth, 20)
                 .build());
         sendButton.active = false;
+        clearFocusButton = addRenderableWidget(Button.builder(Component.literal("Full graph"), button -> clearObservatoryFocus())
+                .bounds(panelX + panelWidth - sendWidth - focusWidth - 12, composeY, focusWidth, 20)
+                .build());
+        clearFocusButton.active = true;
         setInitialFocus(draft);
     }
 
@@ -105,7 +111,7 @@ final class ConversationScreen extends Screen {
 
         graphics.text(font, Component.literal("Recent conversation"), panelX + 10, panelY + 106, 0xFFB8C7D9, true);
         drawMessages(graphics, panelX + 12, panelY + 120, panelWidth - 24, composeY - (panelY + 128));
-        graphics.text(font, Component.literal(clipped("Enter sends  •  Esc closes  •  " + MAX_MESSAGE_LENGTH + " character maximum", panelWidth - 20)), panelX + 10, composeY + 25, 0xFF94A1AF, false);
+        graphics.text(font, Component.literal(clipped("Full graph clears this installation's observatory focus  •  Enter sends", panelWidth - 20)), panelX + 10, composeY + 25, 0xFF94A1AF, false);
 
         super.extractRenderState(graphics, mouseX, mouseY, delta);
     }
@@ -129,6 +135,11 @@ final class ConversationScreen extends Screen {
         if (body.isEmpty()) return;
         remember(context.agentId(), new NotebookMessage("You", body));
         ClientPlayNetworking.send(new ConversationPayloads.Send(context.agentId(), body));
+        onClose();
+    }
+
+    private void clearObservatoryFocus() {
+        ClientPlayNetworking.send(new ConversationPayloads.ClearFocus());
         onClose();
     }
 

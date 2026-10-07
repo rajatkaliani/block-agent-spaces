@@ -22,6 +22,9 @@ public final class WorkspaceAutoRefresher {
         debouncer.request();
     }
 
+    /** Schedules an in-game-only presentation change such as a player's observatory focus. */
+    public void requestReconciliation() { debouncer.request(); }
+
     /** Invoked by Fabric's END_SERVER_TICK event, never by bridge worker threads. */
     public RefreshReport tick(MinecraftServer server) {
         if (!debouncer.ready()) return RefreshReport.NONE;

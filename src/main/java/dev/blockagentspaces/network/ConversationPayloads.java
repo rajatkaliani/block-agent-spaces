@@ -18,4 +18,9 @@ public final class ConversationPayloads {
         public static final StreamCodec<RegistryFriendlyByteBuf, Send> CODEC = StreamCodec.of((buf, p) -> { buf.writeUtf(p.agentId, 64); buf.writeUtf(p.body, 400); }, buf -> new Send(buf.readUtf(64), buf.readUtf(400)));
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
+    public record ClearFocus() implements CustomPacketPayload {
+        public static final Type<ClearFocus> TYPE = new Type<>(Identifier.fromNamespaceAndPath(BlockAgentSpacesMod.MOD_ID, "clear_graph_focus"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, ClearFocus> CODEC = StreamCodec.unit(new ClearFocus());
+        @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
 }

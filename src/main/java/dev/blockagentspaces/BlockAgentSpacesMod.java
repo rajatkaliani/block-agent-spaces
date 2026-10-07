@@ -20,7 +20,8 @@ public final class BlockAgentSpacesMod implements ModInitializer {
     public static final String MOD_ID = "block_agent_spaces";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     private final WorldState worldState = new WorldState();
-    private final WorkspaceAutoRefresher autoRefresher = new WorkspaceAutoRefresher(worldState, new WorkspaceBuilder());
+    private final WorkspaceBuilder workspaceBuilder = new WorkspaceBuilder();
+    private final WorkspaceAutoRefresher autoRefresher = new WorkspaceAutoRefresher(worldState, workspaceBuilder);
     private final RuntimeStatePersistence runtimePersistence = new RuntimeStatePersistence(worldState);
     private final LocalBridge bridge = new LocalBridge(worldState, autoRefresher::requestExternalUpdate);
 
@@ -28,12 +29,16 @@ public final class BlockAgentSpacesMod implements ModInitializer {
     public void onInitialize() {
         PayloadTypeRegistry.clientboundPlay().register(ConversationPayloads.Open.TYPE, ConversationPayloads.Open.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ConversationPayloads.Send.TYPE, ConversationPayloads.Send.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(ConversationPayloads.ClearFocus.TYPE, ConversationPayloads.ClearFocus.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(ConversationPayloads.Send.TYPE, (payload, context) -> {
             AgentCommunicationService.SendResult result = new AgentCommunicationService(worldState).sendFromPlayer(payload.agentId(), context.player().getName().getString(), payload.body());
             if (!result.sent()) context.player().sendSystemMessage(net.minecraft.network.chat.Component.literal(result.error()));
         });
+        ServerPlayNetworking.registerGlobalReceiver(ConversationPayloads.ClearFocus.TYPE, (payload, context) -> {
+            if (workspaceBuilder.clearInstallationFocus(context.player())) autoRefresher.requestReconciliation();
+        });
         BlockAgentsCommands.register(worldState, bridge);
-        AgentInteractionHandler.register(worldState);
+        AgentInteractionHandler.register(worldState, workspaceBuilder, autoRefresher);
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             WorkspaceAutoRefresher.RefreshReport report = autoRefresher.tick(server);
             if (report.protectedInstallations() > 0) LOGGER.warn("Skipped {} Block Agent Spaces refresh(es) because player changes were protected", report.protectedInstallations());

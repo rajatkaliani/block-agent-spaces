@@ -25,7 +25,8 @@ final class WorkspaceInstallationStore extends SavedData {
         Codec.INT.fieldOf("originX").forGetter(Installation::originX),
         Codec.INT.fieldOf("originY").forGetter(Installation::originY),
         Codec.INT.fieldOf("originZ").forGetter(Installation::originZ),
-        Codec.unboundedMap(Codec.STRING, Codec.STRING).fieldOf("ownedBlocks").forGetter(Installation::ownedBlocks)
+        Codec.unboundedMap(Codec.STRING, Codec.STRING).fieldOf("ownedBlocks").forGetter(Installation::ownedBlocks),
+        Codec.STRING.optionalFieldOf("focusedAgentId", "").forGetter(Installation::focusedAgentId)
     ).apply(instance, Installation::new));
 
     private static final Codec<WorkspaceInstallationStore> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -75,17 +76,39 @@ final class WorkspaceInstallationStore extends SavedData {
                 // A corrupt or obsolete entry is not trusted as mod ownership.
             }
         });
-        return new Snapshot(new BlockPos(installation.originX, installation.originY, installation.originZ), expected);
+        return new Snapshot(new BlockPos(installation.originX, installation.originY, installation.originZ), expected, safeAgentId(installation.focusedAgentId));
     }
 
-    void saveInstallation(ServerLevel level, UUID playerId, BlockPos origin, Map<BlockPos, BlockState> expected) {
+    boolean focusInstallation(ServerLevel level, UUID playerId, String agentId) {
+        Installation installation = installations.get(playerId.toString());
+        if (installation == null || !installation.dimension.equals(level.dimension().identifier().toString())) return false;
+        String focus = safeAgentId(agentId);
+        if (installation.focusedAgentId.equals(focus)) return true;
+        installations.put(playerId.toString(), installation.withFocusedAgentId(focus));
+        setDirty();
+        return true;
+    }
+
+    boolean clearFocus(ServerLevel level, UUID playerId) {
+        return focusInstallation(level, playerId, "");
+    }
+
+    void saveInstallation(ServerLevel level, UUID playerId, BlockPos origin, Map<BlockPos, BlockState> expected, String focusedAgentId) {
         Map<String, String> ownedBlocks = new HashMap<>();
         expected.forEach((position, state) -> ownedBlocks.put(Long.toString(position.asLong()), BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString()));
-        installations.put(playerId.toString(), new Installation(level.dimension().identifier().toString(), origin.getX(), origin.getY(), origin.getZ(), ownedBlocks));
+        installations.put(playerId.toString(), new Installation(level.dimension().identifier().toString(), origin.getX(), origin.getY(), origin.getZ(), ownedBlocks, safeAgentId(focusedAgentId)));
         setDirty();
     }
 
-    record Snapshot(BlockPos origin, Map<BlockPos, BlockState> expected) { }
+    private static String safeAgentId(String value) {
+        if (value == null) return "";
+        String cleaned = value.replaceAll("[^A-Za-z0-9._:/-]", "");
+        return cleaned.length() <= 128 ? cleaned : cleaned.substring(0, 128);
+    }
 
-    private record Installation(String dimension, int originX, int originY, int originZ, Map<String, String> ownedBlocks) { }
+    record Snapshot(BlockPos origin, Map<BlockPos, BlockState> expected, String focusedAgentId) { }
+
+    private record Installation(String dimension, int originX, int originY, int originZ, Map<String, String> ownedBlocks, String focusedAgentId) {
+        Installation withFocusedAgentId(String agentId) { return new Installation(dimension, originX, originY, originZ, ownedBlocks, agentId); }
+    }
 }
