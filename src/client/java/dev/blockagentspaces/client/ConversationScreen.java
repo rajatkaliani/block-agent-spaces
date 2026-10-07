@@ -13,7 +13,6 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
-import org.lwjgl.glfw.GLFW;
 
 /**
  * A compact, deliberately plain-text notebook for talking to one workspace agent.
@@ -25,6 +24,9 @@ import org.lwjgl.glfw.GLFW;
 final class ConversationScreen extends Screen {
     private static final int MAX_HISTORY = 6;
     private static final int MAX_MESSAGE_LENGTH = 400;
+    // GLFW key values are part of Minecraft's input contract, but GLFW is not exposed to mod compilation.
+    private static final int ENTER_KEY = 257;
+    private static final int KEYPAD_ENTER_KEY = 335;
     private static final Map<String, Deque<NotebookMessage>> LOCAL_HISTORY = new LinkedHashMap<>();
 
     private final ConversationPayloads.Open context;
@@ -110,7 +112,7 @@ final class ConversationScreen extends Screen {
 
     @Override
     public boolean keyPressed(KeyEvent event) {
-        if ((event.key() == GLFW.GLFW_KEY_ENTER || event.key() == GLFW.GLFW_KEY_KP_ENTER) && draft != null && !draft.getValue().trim().isEmpty()) {
+        if ((event.key() == ENTER_KEY || event.key() == KEYPAD_ENTER_KEY) && draft != null && !draft.getValue().trim().isEmpty()) {
             send();
             return true;
         }
