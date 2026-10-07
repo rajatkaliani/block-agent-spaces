@@ -39,16 +39,24 @@ public final class WorldState {
     public long acknowledgementFor(String consumer) { return acknowledgements.getOrDefault(consumer, 0L); }
 
     public void seedExample() {
-        putTask(new Task("task-scaffold", "Scaffold Fabric mod", "Create the first runnable mod", "in_progress", Instant.now()));
+        putTask(new Task("ticket-101", "Scaffold Fabric mod", "Create the first runnable mod", "in_progress", Instant.now()));
+        putTask(new Task("ticket-102", "Review scaffold", "Review and decide whether to accept the proposed change", "in_review", Instant.now()));
         putNode(new GraphNode("project", "Block Agent Spaces", "project", Map.of()));
+        putNode(new GraphNode("canonical-history", "Canonical history", "history", Map.of()));
         putNode(new GraphNode("fabric", "Fabric mod", "file", Map.of()));
-        putNode(new GraphNode("task-scaffold", "Scaffold Fabric mod", "task", Map.of()));
+        putNode(new GraphNode("ticket-101", "Ticket 101: Scaffold", "ticket", Map.of()));
+        putNode(new GraphNode("workspace-builder", "Builder workspace", "workspace", Map.of()));
+        putNode(new GraphNode("review-ticket-101", "Goat review", "review", Map.of()));
         putEdge(new GraphEdge("project-uses-fabric", "project", "fabric", "uses"));
-        putEdge(new GraphEdge("task-builds-project", "task-scaffold", "project", "builds"));
-        putAgent(new Agent("builder", "Builder", AgentState.WORKING, "task-scaffold",
-                "Scaffolding the Fabric mod", List.of("project", "fabric", "task-scaffold"), Instant.now()));
-        putAgent(new Agent("reviewer", "Reviewer", AgentState.REVIEWING, "task-scaffold",
-                "Reviewing the proposed architecture", List.of("project", "task-scaffold"), Instant.now()));
+        putEdge(new GraphEdge("ticket-workspace", "ticket-101", "workspace-builder", "assigned_workspace"));
+        putEdge(new GraphEdge("ticket-review", "ticket-101", "review-ticket-101", "reviewed_by"));
+        putEdge(new GraphEdge("review-history", "review-ticket-101", "canonical-history", "accepted_into"));
+        putAgent(new Agent("goat", "Goat", AgentState.REVIEWING, "ticket-102", "ticket-102", "control-room", "main", "reviewing", "pending",
+                "Triaging tickets, reviewing changes, and accepting work into canonical history", List.of("ticket-101", "review-ticket-101", "canonical-history"), Instant.now()));
+        putAgent(new Agent("builder", "Builder", AgentState.WORKING, "ticket-101", "ticket-101", "workspace-builder", "ticket-101/scaffold", "changes_requested", "pending",
+                "Scaffolding the Fabric mod in an isolated ticket workspace", List.of("project", "fabric", "ticket-101", "workspace-builder"), Instant.now()));
+        putAgent(new Agent("reviewer", "Reviewer", AgentState.REVIEWING, "ticket-101", "ticket-101", "workspace-reviewer", "ticket-101/review", "reviewing", "pending",
+                "Checking the proposed change before Goat accepts it", List.of("ticket-101", "review-ticket-101"), Instant.now()));
     }
 
     private void event(String type, String id) {

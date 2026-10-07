@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class AgentCommunicationServiceTest {
     @Test void resolvesAnAgentByDisplayNameAndQueuesMinecraftMessage() {
         WorldState state = new WorldState();
-        state.putAgent(new Agent("builder", "Builder", AgentState.WORKING, "task-1", "Building", List.of("project"), Instant.now()));
+        state.putAgent(new Agent("builder", "Builder", AgentState.WORKING, "task-1", "ticket-1", "workspace", "ticket-1/build", "reviewing", "pending", "Building", List.of("project"), Instant.now()));
         AgentCommunicationService service = new AgentCommunicationService(state);
         var result = service.sendFromMinecraft("Builder", "Please share progress.");
         assertTrue(result.sent());
@@ -22,7 +22,7 @@ class AgentCommunicationServiceTest {
         AgentCommunicationService service = new AgentCommunicationService(new WorldState());
         assertFalse(service.sendFromMinecraft("missing", "hello").sent());
         WorldState state = new WorldState();
-        state.putAgent(new Agent("builder", "Builder", AgentState.IDLE, "", "", List.of(), Instant.now()));
+        state.putAgent(new Agent("builder", "Builder", AgentState.IDLE, "", "", "", "", "not_requested", "pending", "", List.of(), Instant.now()));
         assertFalse(new AgentCommunicationService(state).sendFromMinecraft("builder", "x".repeat(401)).sent());
     }
 }

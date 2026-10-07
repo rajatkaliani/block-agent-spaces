@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class WorldStateTest {
     @Test void capturesAnAgentUpdateAndEvent() {
         WorldState state = new WorldState();
-        state.putAgent(new Agent("a1", "Builder", AgentState.WORKING, "t1", "Writing code", List.of("n1"), Instant.now()));
+        state.putAgent(new Agent("a1", "Builder", AgentState.WORKING, "t1", "t1", "workspace", "ticket/t1", "reviewing", "pending", "Writing code", List.of("n1"), Instant.now()));
         assertEquals(1, state.agents().size());
         assertEquals("agent.updated", state.eventsAfter(0).getFirst().type());
     }

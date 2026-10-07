@@ -58,7 +58,7 @@ public final class LocalBridge {
     private void agents(HttpExchange x) throws IOException {
         if (x.getRequestMethod().equals("GET")) { respond(x, 200, agentsJson()); return; }
         requirePost(x);
-        String b = body(x); state.putAgent(new Agent(Json.string(b,"id"), Json.string(b,"displayName"), AgentState.fromWire(Json.string(b,"state")), Json.string(b,"taskId"), Json.string(b,"detail"), Json.strings(b,"graphFocus"), Instant.now())); respond(x, 202, "{\"accepted\":true}");
+        String b = body(x); state.putAgent(new Agent(Json.string(b,"id"), Json.string(b,"displayName"), AgentState.fromWire(Json.string(b,"state")), Json.string(b,"taskId"), Json.string(b,"ticketId"), Json.string(b,"workspace"), Json.string(b,"branch"), Json.string(b,"reviewStatus"), Json.string(b,"acceptanceStatus"), Json.string(b,"detail"), Json.strings(b,"graphFocus"), Instant.now())); respond(x, 202, "{\"accepted\":true}");
     }
     private void tasks(HttpExchange x) throws IOException {
         if (x.getRequestMethod().equals("GET")) { respond(x, 200, tasksJson()); return; }
@@ -80,7 +80,7 @@ public final class LocalBridge {
         requirePost(x);
         String b = body(x); state.addMessage(new AgentMessage(Json.string(b,"id"), Json.string(b,"from"), Json.string(b,"to"), Json.string(b,"body"), Instant.now())); respond(x, 202, "{\"accepted\":true}");
     }
-    private String agentsJson() { return "[" + state.agents().stream().map(a -> "{\"id\":"+Json.quote(a.id())+",\"displayName\":"+Json.quote(a.displayName())+",\"state\":"+Json.quote(a.state().name())+",\"taskId\":"+Json.quote(a.taskId())+",\"detail\":"+Json.quote(a.detail())+"}").reduce((a,b)->a+","+b).orElse("") + "]"; }
+    private String agentsJson() { return "[" + state.agents().stream().map(a -> "{\"id\":"+Json.quote(a.id())+",\"displayName\":"+Json.quote(a.displayName())+",\"state\":"+Json.quote(a.state().name())+",\"taskId\":"+Json.quote(a.taskId())+",\"ticketId\":"+Json.quote(a.ticketId())+",\"workspace\":"+Json.quote(a.workspace())+",\"branch\":"+Json.quote(a.branch())+",\"reviewStatus\":"+Json.quote(a.reviewStatus())+",\"acceptanceStatus\":"+Json.quote(a.acceptanceStatus())+",\"detail\":"+Json.quote(a.detail())+"}").reduce((a,b)->a+","+b).orElse("") + "]"; }
     private String tasksJson() { return "[" + state.tasks().stream().map(t -> "{\"id\":"+Json.quote(t.id())+",\"title\":"+Json.quote(t.title())+",\"status\":"+Json.quote(t.status())+"}").reduce((a,b)->a+","+b).orElse("") + "]"; }
     private String nodesJson() { return "[" + state.nodes().stream().map(n -> "{\"id\":"+Json.quote(n.id())+",\"label\":"+Json.quote(n.label())+",\"type\":"+Json.quote(n.type())+"}").reduce((a,b)->a+","+b).orElse("") + "]"; }
     private String edgesJson() { return "[" + state.edges().stream().map(e -> "{\"id\":"+Json.quote(e.id())+",\"sourceId\":"+Json.quote(e.sourceId())+",\"targetId\":"+Json.quote(e.targetId())+",\"relationship\":"+Json.quote(e.relationship())+"}").reduce((a,b)->a+","+b).orElse("") + "]"; }
