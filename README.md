@@ -43,9 +43,23 @@ The workspace populates up to four current agents as stationary named villagers 
 4. Point a local orchestrator at `http://127.0.0.1:8787` and publish agent and graph events.
 5. Run `/blockagents build` again to refresh the world installation, then use `/blockagents agents` or `/blockagents graph` for details.
 
+### Communicate from inside Minecraft
+
+Once agents are published, these commands make the world an active workspace rather than a passive display:
+
+```text
+/blockagents inspect builder
+/blockagents message builder Please share progress on the graph renderer.
+/blockagents refresh
+```
+
+`inspect` resolves either an agent ID or its display name and shows its state, current task, latest message, and linked graph elements. `message` records a bounded player-to-agent message in the same local state exposed at `/v1/messages`, ready for a local orchestrator to poll. It rejects unknown names, empty text, and messages over 400 characters. `refresh` redraws the current player's existing installation from the newest bridge state without looking for or altering another build location.
+
 ### Local integration bridge
 
 External agent orchestrators can publish data to the running mod through HTTP. The bridge starts when the Minecraft server/world starts, only listens on localhost, and is intended for trusted processes on the same computer. It accepts simple flat JSON payloads and returns the current state for visualizers or debugging.
+
+Mutating endpoints accept `POST` only; malformed or incomplete domain payloads return a clear `400` response rather than changing state. Other request failures are returned as a generic error without exposing server details.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
