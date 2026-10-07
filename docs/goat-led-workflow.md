@@ -197,17 +197,21 @@ full diffs, and raw tool logs must not be sent to the game. The adapter should
 publish sanitized summaries, authors, time, ticket/change-request references,
 and a link-like in-game affordance to the associated notebook or graph focus.
 
-## Future click-to-chat notebook UI
+## Click-to-chat notebook UI
 
-Right-clicking an NPC should open a notebook-style screen rather than require
-a command. The same design applies to Goat, developers, and reviewers.
+Right-clicking an NPC opens a notebook-style screen rather than requiring a
+command. The same design applies to Goat, developers, and reviewers. The click
+also focuses that player's own graph observatory on the agent's published graph
+focus, with ticket/task and one-hop relationship fallbacks. A **Full graph**
+button clears the per-installation selection; it never sends a chat command or
+changes another player's observatory.
 
 The notebook has four compact areas:
 
 1. **Header:** agent name, role, presence/state, current ticket, and whether
    the state is live or last known.
 2. **Work card:** ticket goal, acceptance criteria, branch/workspace summary,
-   test/review state, and graph-focus button.
+   test/review state, and Full graph control for clearing the saved focus.
 3. **Conversation:** newest-first or chronological bounded message thread,
    with clear sender and delivery/pending indicators.
 4. **Compose:** a short player message field and Send action. Messages to

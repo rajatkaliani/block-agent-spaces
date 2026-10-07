@@ -32,7 +32,7 @@ In a world with the mod installed, run:
 
 If the spot is unsuitable, the game names the first issue—unsafe ground, uneven terrain, or the exact relative clearance obstruction—and changes nothing. `/blockagents build` is the explicit advanced/rebuild alias; after a successful build it refreshes the same recorded installation rather than claiming a new patch. The footprint and every block placed by the mod are saved with the world. A refresh stops before changing any block that no longer matches the recorded generated state, so a player's later construction is never overwritten.
 
-The workspace populates up to four current agents as stationary named villagers at color-coded stations: green working, red blocked, yellow reviewing, blue complete, and gray idle. **Right-click a workspace villager** to see its state and task in the action bar, followed by its detail, graph focus, and latest message in chat—no command required. The observatory turns up to six graph nodes into floating colored blocks and links known relationships with glowing End Rod paths. Two in-world legend signs explain the node colors and edge glow. `agents` surfaces each agent's full current detail and task, while `graph` provides a compact textual inspection view. `/blockagents seed` restores the sample workspace at any time.
+The workspace populates up to four current agents as stationary named villagers at color-coded stations: green working, red blocked, yellow reviewing, blue complete, and gray idle. **Right-click a workspace villager** to open its notebook and focus *your* observatory on that agent—no command required. The focus starts with the agent's published graph-focus IDs, falls back to its ticket and task, then includes one bounded relationship hop. Related nodes and links stay bright; unrelated items dim while preserving their project/file/task colors. The **Full graph** notebook button clears only your installation's saved selection. The observatory has six stable, ID-sorted node slots, so a bridge refresh cannot shuffle the room because of map iteration order.
 
 ### Five-minute first run
 
@@ -40,7 +40,7 @@ The workspace populates up to four current agents as stationary named villagers 
 2. Find a level 31×11 patch of solid ground with open air above it, then stand near its middle.
 3. Run `/blockagents start`. It seeds the demo, validates the patch, builds the complete space around you, and opens Goat's dashboard.
 4. Point a local orchestrator at `http://127.0.0.1:8787` and publish agent and graph events.
-5. Right-click an agent to open its notebook. Bridge updates are reflected in the installed space automatically after a short quiet moment; use `/blockagents build` only when you want an explicit manual refresh.
+5. Right-click an agent to open its notebook and focus your graph room. Use **Full graph** in the notebook to clear the selection. Bridge updates are reflected in the installed space automatically after a short quiet moment; use `/blockagents build` only when you want an explicit manual refresh.
 
 ### Copy-paste bridge quickstart
 
@@ -120,7 +120,7 @@ curl -X POST http://127.0.0.1:8787/v1/events/ack \
   -d '{"consumer":"my-local-orchestrator","cursor":1}'
 ```
 
-The event stream is an outbox signal, not a copy of every payload. When it reports `message.created`, fetch `/v1/messages` to read the message body; when it reports an agent, task, node, or edge update, fetch the matching endpoint or a snapshot. The in-memory event history retains the newest 500 events, so consumers should poll and persist their own cursor while the world is running.
+The event stream is an outbox signal, not a copy of every payload. When it reports `message.created`, fetch `/v1/messages` to read the message body; when it reports an agent, task, node, or edge update, fetch the matching endpoint or a snapshot. The in-memory event history retains the newest 200 events, so consumers should poll and persist their own cursor while the world is running.
 
 ### Automatic in-world refresh
 
@@ -130,7 +130,7 @@ The Goat control point visibly says either `DEMO DATA • BRIDGE READY`, `DEMO D
 
 ### Restart-safe state
 
-The world saves the generated-installation ownership metadata plus a bounded snapshot of agent, ticket, graph, conversation, bridge-event cursor, and display-source state. On restart, the latest saved snapshot is restored before demo data is seeded, then the normal safe reconciler redraws only managed space. A restored world is labeled `RESTORED LOCAL DATA` until the local adapter publishes a fresh update.
+The world saves the generated-installation ownership metadata plus a bounded snapshot of agent, ticket, graph, conversation, bridge-event cursor, and display-source state. Each installation also saves its selected agent focus. On restart, the latest saved snapshot is restored before demo data is seeded, then the normal safe reconciler redraws only managed space. A restored world is labeled `RESTORED LOCAL DATA` until the local adapter publishes a fresh update. If the selected agent no longer exists, the reconciler clears that selection only after its normal ownership check succeeds; a player-edited installation remains untouched and keeps its choice for a later safe refresh.
 
 This is presentation continuity, not a replacement for an external Goat adapter's source of truth. The mod never stores pairing tokens, bridge configuration, arbitrary absolute filesystem paths, or unbounded message/event logs. The adapter should republish authoritative workspaces, Git state, ticket history, and any missed events after reconnecting.
 
