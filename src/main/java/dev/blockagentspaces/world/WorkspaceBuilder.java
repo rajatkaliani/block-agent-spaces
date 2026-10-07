@@ -100,11 +100,10 @@ public final class WorkspaceBuilder {
         for (Map.Entry<BlockPos, BlockState> entry : target.entrySet()) {
             BlockState actual = level.getBlockState(entry.getKey());
             BlockState owned = previous.get(entry.getKey());
-            if (owned == null) {
-                if (!actual.isAir()) return "The planned installation overlaps a player block at " + describe(entry.getKey()) + ". Move to a clear flat patch; nothing was changed.";
-            } else if (!actual.equals(owned) && !actual.isAir()) {
-                return "A player change was found at " + describe(entry.getKey()) + ". Refresh stopped without replacing it.";
-            }
+            boolean permitted = ManagedBlockOwnership.mayReplace(owned != null, owned != null && actual.equals(owned), actual.isAir());
+            if (!permitted) return owned == null
+                ? "The planned installation overlaps a player block at " + describe(entry.getKey()) + ". Move to a clear flat patch; nothing was changed."
+                : "A player change was found at " + describe(entry.getKey()) + ". Refresh stopped without replacing it.";
         }
         return null;
     }
