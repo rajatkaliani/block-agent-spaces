@@ -29,10 +29,18 @@ public final class BlockAgentSpacesMod implements ModInitializer {
     public void onInitialize() {
         PayloadTypeRegistry.clientboundPlay().register(ConversationPayloads.Open.TYPE, ConversationPayloads.Open.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ConversationPayloads.Send.TYPE, ConversationPayloads.Send.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(ConversationPayloads.Refresh.TYPE, ConversationPayloads.Refresh.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ConversationPayloads.ClearFocus.TYPE, ConversationPayloads.ClearFocus.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(ConversationPayloads.Send.TYPE, (payload, context) -> {
-            AgentCommunicationService.SendResult result = new AgentCommunicationService(worldState).sendFromPlayer(payload.agentId(), context.player().getName().getString(), payload.body());
+            // The local bridge has one stable player identity. Display names are
+            // presentation only; leaking them into the protocol made notebook
+            // messages invisible to adapters expecting minecraft-player.
+            AgentCommunicationService.SendResult result = new AgentCommunicationService(worldState).sendFromMinecraft(payload.agentId(), payload.body());
             if (!result.sent()) context.player().sendSystemMessage(net.minecraft.network.chat.Component.literal(result.error()));
+        });
+        ServerPlayNetworking.registerGlobalReceiver(ConversationPayloads.Refresh.TYPE, (payload, context) -> {
+            AgentCommunicationService communication = new AgentCommunicationService(worldState);
+            communication.findAgent(payload.agentId()).ifPresent(agent -> AgentInteractionHandler.openNotebook(context.player(), communication, agent));
         });
         ServerPlayNetworking.registerGlobalReceiver(ConversationPayloads.ClearFocus.TYPE, (payload, context) -> {
             if (workspaceBuilder.clearInstallationFocus(context.player())) autoRefresher.requestReconciliation();

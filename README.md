@@ -42,7 +42,7 @@ Near Goat, a physical ticket board presents five readable, text-labeled columns:
 2. Find a level 31×11 patch of solid ground with open air above it, then stand near its middle.
 3. Run `/blockagents start`. It seeds the demo, validates the patch, builds the complete space around you, and opens Goat's dashboard.
 4. Point a local orchestrator at `http://127.0.0.1:8787` and publish agent and graph events.
-5. Right-click an agent to open its notebook and focus your graph room. Use **Full graph** in the notebook to clear the selection. Bridge updates are reflected in the installed space automatically after a short quiet moment; use `/blockagents build` only when you want an explicit manual refresh.
+5. Right-click an agent to open its notebook and focus your graph room. Write in the notebook and select **Send**; your note is visibly labelled **You • sent** and enters the local bridge outbox. Select **Refresh** to retrieve a separately-labelled reply after the configured adapter has published one. Use **Full graph** to clear the selection. Bridge updates are reflected in the installed space automatically after a short quiet moment; use `/blockagents build` only when you want an explicit manual refresh.
 
 ### Copy-paste bridge quickstart
 
@@ -52,14 +52,7 @@ The repository includes a Python standard-library demo—no package install and 
 python3 examples/bridge_demo.py
 ```
 
-The script checks the bridge, publishes a task, two graph nodes, an edge, and a `Builder` agent, then waits. In Minecraft, enter:
-
-```text
-/blockagents message builder hello from Minecraft
-/blockagents refresh
-```
-
-The script reads that Minecraft-originated message through the bridge outbox and sends an acknowledgement. Use it as a minimal reference for adapting any local orchestrator; it does not depend on or imply an integration with a particular agent product.
+The script checks the bridge, publishes a task, two graph nodes, an edge, and a `Builder` agent, then waits. In Minecraft, right-click Builder, write a note in the notebook, select **Send**, then select **Refresh**. The sample publishes a separate `DEMO REPLY` from Builder; it never echoes your text or claims a real coding agent acted. Use it as a minimal reference for adapting any local orchestrator; it does not depend on or imply an integration with a particular agent product.
 
 ### Communicate from inside Minecraft
 
@@ -71,7 +64,7 @@ Once agents are published, these commands make the world an active workspace rat
 /blockagents refresh
 ```
 
-`inspect` resolves either an agent ID or its display name and shows its state, current task, latest message, and linked graph elements. `message` records a bounded player-to-agent message in the same local state exposed at `/v1/messages`, ready for a local orchestrator to poll. It rejects unknown names, empty text, and messages over 400 characters. `refresh` redraws the current player's existing installation from the newest bridge state without looking for or altering another build location, then reports the number of agent stations, graph nodes, and glowing links refreshed. The normal interaction path is the clickable agent notebook; these commands remain useful for server operators and troubleshooting.
+`inspect` resolves either an agent ID or its display name and shows its state, current task, latest message, and linked graph elements. `message` records a bounded player-to-agent message in the same local state exposed at `/v1/messages`, ready for a local orchestrator to poll. It rejects unknown names, empty text, and messages over 400 characters. `refresh` redraws the current player's existing installation from the newest bridge state without looking for or altering another build location, then reports the number of agent stations, graph nodes, and glowing links refreshed. The normal interaction path is the clickable agent notebook; these commands remain useful for server operators and troubleshooting. A player note is never displayed as an agent response: only an adapter-authored message from that specific agent to `minecraft-player` appears as an incoming note.
 
 ### Local integration bridge
 

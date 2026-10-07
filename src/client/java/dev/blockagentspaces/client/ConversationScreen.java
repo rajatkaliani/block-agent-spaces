@@ -1,11 +1,8 @@
 package dev.blockagentspaces.client;
 
 import dev.blockagentspaces.network.ConversationPayloads;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
@@ -17,9 +14,9 @@ import net.minecraft.network.chat.Component;
 /**
  * A compact, deliberately plain-text notebook for talking to one workspace agent.
  *
- * <p>The server remains authoritative for messages. This screen only keeps a small
- * local echo so a player can still see the messages they just sent when reopening a
- * notebook before the next bridge refresh arrives.</p>
+ * <p>The server remains authoritative for transcripts. A player message is shown as
+ * an outgoing note, and an adapter reply is shown as a separate incoming note. The
+ * notebook never turns a player's own outbox entry into a fake agent response.</p>
  */
 final class ConversationScreen extends Screen {
     private static final int MAX_HISTORY = 6;
@@ -27,18 +24,19 @@ final class ConversationScreen extends Screen {
     // GLFW key values are part of Minecraft's input contract, but GLFW is not exposed to mod compilation.
     private static final int ENTER_KEY = 257;
     private static final int KEYPAD_ENTER_KEY = 335;
-    private static final Map<String, Deque<NotebookMessage>> LOCAL_HISTORY = new LinkedHashMap<>();
-
     private final ConversationPayloads.Open context;
     private final List<NotebookMessage> messages;
     private EditBox draft;
     private Button sendButton;
     private Button clearFocusButton;
+    private Button refreshButton;
+    private String deliveryStatus;
 
     ConversationScreen(ConversationPayloads.Open context) {
         super(Component.literal(safe(context.name()) + " notebook"));
         this.context = context;
-        this.messages = conversationFor(context);
+        this.messages = new ArrayList<>(conversationFor(context));
+        this.deliveryStatus = safe(context.deliveryStatus());
     }
 
     @Override
@@ -48,7 +46,8 @@ final class ConversationScreen extends Screen {
         int composeY = Math.max(138, height - 48);
         int sendWidth = 58;
         int focusWidth = 82;
-        int draftWidth = Math.max(80, panelWidth - sendWidth - focusWidth - 24);
+        int refreshWidth = 58;
+        int draftWidth = Math.max(80, panelWidth - sendWidth - focusWidth - refreshWidth - 28);
 
         draft = new EditBox(font, panelX + 8, composeY, draftWidth, 20, Component.literal("Message " + safe(context.name())));
         draft.setMaxLength(MAX_MESSAGE_LENGTH);
@@ -60,6 +59,9 @@ final class ConversationScreen extends Screen {
                 .bounds(panelX + panelWidth - sendWidth - 8, composeY, sendWidth, 20)
                 .build());
         sendButton.active = false;
+        refreshButton = addRenderableWidget(Button.builder(Component.literal("Refresh"), button -> refreshConversation())
+                .bounds(panelX + panelWidth - sendWidth - focusWidth - refreshWidth - 16, composeY, refreshWidth, 20)
+                .build());
         clearFocusButton = addRenderableWidget(Button.builder(Component.literal("Full graph"), button -> clearObservatoryFocus())
                 .bounds(panelX + panelWidth - sendWidth - focusWidth - 12, composeY, focusWidth, 20)
                 .build());
@@ -109,9 +111,9 @@ final class ConversationScreen extends Screen {
         graphics.text(font, Component.literal(clipped("Acceptance: " + context.acceptance(), columnWidth)), rightX, panelY + 62, acceptanceColor(context.acceptance()), false);
         graphics.text(font, Component.literal(clipped(context.detail(), columnWidth)), rightX, panelY + 75, 0xFFBAC2CB, false);
 
-        graphics.text(font, Component.literal("Recent conversation"), panelX + 10, panelY + 106, 0xFFB8C7D9, true);
+        graphics.text(font, Component.literal("Conversation"), panelX + 10, panelY + 106, 0xFFB8C7D9, true);
         drawMessages(graphics, panelX + 12, panelY + 120, panelWidth - 24, composeY - (panelY + 128));
-        graphics.text(font, Component.literal(clipped("Full graph clears this installation's observatory focus  •  Enter sends", panelWidth - 20)), panelX + 10, composeY + 25, 0xFF94A1AF, false);
+        graphics.text(font, Component.literal(clipped(deliveryStatus, panelWidth - 20)), panelX + 10, composeY + 25, 0xFF94A1AF, false);
 
         super.extractRenderState(graphics, mouseX, mouseY, delta);
     }
@@ -133,9 +135,16 @@ final class ConversationScreen extends Screen {
     private void send() {
         String body = safe(draft.getValue()).trim();
         if (body.isEmpty()) return;
-        remember(context.agentId(), new NotebookMessage("You", body));
+        messages.add(new NotebookMessage("You", body, true));
+        while (messages.size() > MAX_HISTORY) messages.removeFirst();
+        deliveryStatus = "Sent to the local bridge outbox • waiting for " + safe(context.name()) + "'s adapter reply.";
+        draft.setValue("");
         ClientPlayNetworking.send(new ConversationPayloads.Send(context.agentId(), body));
-        onClose();
+    }
+
+    private void refreshConversation() {
+        deliveryStatus = "Refreshing the server transcript…";
+        ClientPlayNetworking.send(new ConversationPayloads.Refresh(context.agentId()));
     }
 
     private void clearObservatoryFocus() {
@@ -144,7 +153,7 @@ final class ConversationScreen extends Screen {
     }
 
     private void drawMessages(GuiGraphicsExtractor graphics, int x, int y, int availableWidth, int availableHeight) {
-        int maxRows = Math.max(1, Math.min(MAX_HISTORY, availableHeight / 13));
+        int maxRows = Math.max(1, Math.min(MAX_HISTORY, availableHeight / 25));
         List<NotebookMessage> visible = messages.size() <= maxRows
                 ? messages
                 : messages.subList(messages.size() - maxRows, messages.size());
@@ -154,9 +163,16 @@ final class ConversationScreen extends Screen {
         }
         int cursorY = y;
         for (NotebookMessage message : visible) {
-            String line = clipped(message.sender + ": " + message.body, availableWidth);
-            graphics.text(font, Component.literal(line), x, cursorY, message.sender.equals("You") ? 0xFF9BDAAE : 0xFFE0E7EF, false);
-            cursorY += 13;
+            int cardWidth = Math.max(92, (availableWidth * 3) / 4);
+            int cardX = message.outgoing ? x + availableWidth - cardWidth : x;
+            int fill = message.outgoing ? 0xCC173D35 : 0xCC28313D;
+            int border = message.outgoing ? 0xFF4FAF86 : 0xFF617791;
+            graphics.fill(cardX, cursorY - 2, cardX + cardWidth, cursorY + 20, fill);
+            graphics.outline(cardX, cursorY - 2, cardX + cardWidth, cursorY + 20, border);
+            String label = message.outgoing ? "You • sent" : message.sender + " • incoming";
+            graphics.text(font, Component.literal(clipped(label, cardWidth - 8)), cardX + 4, cursorY, message.outgoing ? 0xFF9BDAAE : 0xFFE0E7EF, false);
+            graphics.text(font, Component.literal(clipped(message.body, cardWidth - 8)), cardX + 4, cursorY + 10, message.outgoing ? 0xFFD3F1DF : 0xFFE0E7EF, false);
+            cursorY += 25;
         }
     }
 
@@ -165,22 +181,10 @@ final class ConversationScreen extends Screen {
     }
 
     private static List<NotebookMessage> conversationFor(ConversationPayloads.Open context) {
-        Deque<NotebookMessage> history = LOCAL_HISTORY.computeIfAbsent(context.agentId(), ignored -> new ArrayDeque<>());
-        String recent = safe(context.recent()).trim();
-        if (!recent.isEmpty() && !recent.equalsIgnoreCase("No recent conversation.")) {
-            int divider = recent.indexOf(':');
-            NotebookMessage incoming = divider > 0
-                    ? new NotebookMessage(safe(recent.substring(0, divider)), safe(recent.substring(divider + 1)).trim())
-                    : new NotebookMessage("Agent", recent);
-            if (history.stream().noneMatch(existing -> existing.equals(incoming))) remember(context.agentId(), incoming);
-        }
-        return List.copyOf(history);
-    }
-
-    private static void remember(String agentId, NotebookMessage message) {
-        Deque<NotebookMessage> history = LOCAL_HISTORY.computeIfAbsent(agentId, ignored -> new ArrayDeque<>());
-        history.addLast(message);
-        while (history.size() > MAX_HISTORY) history.removeFirst();
+        if (context.conversation() == null) return List.of();
+        return context.conversation().stream()
+            .map(entry -> new NotebookMessage(safe(entry.sender()), safe(entry.body()), entry.outgoing()))
+            .toList();
     }
 
     private static int stateColor(String state) {
@@ -216,5 +220,5 @@ final class ConversationScreen extends Screen {
         return font.plainSubstrByWidth(plain, Math.max(1, pixelWidth - font.width("…"))) + "…";
     }
 
-    private record NotebookMessage(String sender, String body) { }
+    private record NotebookMessage(String sender, String body, boolean outgoing) { }
 }

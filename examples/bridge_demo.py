@@ -2,8 +2,9 @@
 """Zero-dependency Block Agent Spaces bridge example.
 
 Run this while a Minecraft world with the mod is open. It publishes one small
-workspace, then waits for a player to use /blockagents message builder <text>.
-The message is read from the ordered outbox and acknowledged with a cursor.
+workspace, then waits for a player to message Builder through the clickable
+notebook. The message is read from the ordered outbox and receives one clearly
+labelled deterministic demo reply; it never repeats the player's text.
 """
 
 import json
@@ -44,8 +45,8 @@ def publish_example():
 def main():
     print("Health:", request("/health"))
     publish_example()
-    print("Published demo state. In Minecraft run: /blockagents message builder hello from Minecraft")
-    print("Then run /blockagents refresh to update the installation.")
+    print("Published demo state. In Minecraft, right-click Builder and send a note from the notebook.")
+    print("Use the notebook Refresh button to retrieve the labelled demo reply.")
 
     cursor = 0
     deadline = time.monotonic() + 90
@@ -58,6 +59,12 @@ def main():
             if minecraft_messages:
                 message = minecraft_messages[-1]
                 print("Minecraft said:", message["body"])
+                post("/v1/messages", {
+                    "id": f"builder-demo-reply-{message['id']}",
+                    "from": "builder",
+                    "to": "minecraft-player",
+                    "body": "DEMO REPLY | Builder received your note in the local outbox. This sample does not run a coding agent or change a ticket.",
+                })
                 print("Acknowledgement:", post("/v1/events/ack", {"consumer": "python-demo", "cursor": cursor}))
                 return
         time.sleep(2)

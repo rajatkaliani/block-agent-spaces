@@ -197,7 +197,7 @@ class GoatLeadDemo:
         # metadata stays clearly labeled in the bounded human-readable body.
         post("/v1/messages", {
             "id": f"goat-ack-{player_message['id']}", "from": GOAT_ID, "to": "minecraft-player",
-            "body": "Goat triaged your request. Builder is visually assigned and Reviewer is reserved; a production adapter performs real tickets, worktrees, reviews, and merges.",
+            "body": "DEMO TRIAGE | Goat recorded your request. Builder is visually assigned and Reviewer is reserved; a production adapter performs real tickets, worktrees, reviews, and merges.",
         })
         post("/v1/messages", {
             "id": f"goat-delegates-{player_message['id']}", "from": GOAT_ID, "to": DEVELOPER_ID,

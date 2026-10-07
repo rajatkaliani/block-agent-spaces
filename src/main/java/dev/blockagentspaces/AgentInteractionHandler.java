@@ -12,6 +12,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
+import java.util.List;
 
 /** Makes workspace villagers a stable, server-side entry point into agent inspection. */
 public final class AgentInteractionHandler {
@@ -38,8 +39,15 @@ public final class AgentInteractionHandler {
         });
     }
 
-    private static void openNotebook(ServerPlayer player, AgentCommunicationService communication, dev.blockagentspaces.model.Agent agent) {
-        String recent = communication.recentMessageFor(agent.id()).map(message -> message.from() + ": " + message.body()).orElse("No recent conversation.");
-        ServerPlayNetworking.send(player, new ConversationPayloads.Open(agent.id(), agent.displayName(), agent.state().name(), agent.taskId(), agent.ticketId(), agent.workspace(), agent.branch(), agent.reviewStatus(), agent.acceptanceStatus(), agent.detail(), recent));
+    /** Sends a fully labelled, server-authoritative transcript to one player. */
+    public static void openNotebook(ServerPlayer player, AgentCommunicationService communication, dev.blockagentspaces.model.Agent agent) {
+        List<ConversationPayloads.Entry> conversation = communication.conversationFor(agent.id()).stream()
+            .map(entry -> new ConversationPayloads.Entry(
+                entry.direction() == AgentCommunicationService.Direction.OUTGOING ? "You" : agent.displayName(),
+                entry.message().body(),
+                entry.direction() == AgentCommunicationService.Direction.OUTGOING))
+            .toList();
+        String delivery = "Messages enter the local bridge outbox. Waiting for a configured adapter to reply.";
+        ServerPlayNetworking.send(player, new ConversationPayloads.Open(agent.id(), agent.displayName(), agent.state().name(), agent.taskId(), agent.ticketId(), agent.workspace(), agent.branch(), agent.reviewStatus(), agent.acceptanceStatus(), agent.detail(), conversation, delivery));
     }
 }
