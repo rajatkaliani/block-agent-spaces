@@ -5,6 +5,7 @@ import dev.blockagentspaces.model.GraphNode;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 
 /** A stable six-slot observatory layout independent of map iteration order. */
 public final class GraphLayout {
@@ -13,8 +14,13 @@ public final class GraphLayout {
     private GraphLayout() { }
 
     public static List<PlacedNode> arrange(Collection<GraphNode> graphNodes) {
+        return arrange(graphNodes, Set.of());
+    }
+
+    /** Focused nodes get the first stable slots so selecting an agent always has a visible effect. */
+    public static List<PlacedNode> arrange(Collection<GraphNode> graphNodes, Set<String> focusedNodeIds) {
         return graphNodes.stream().filter(node -> node != null)
-            .sorted(Comparator.comparing(GraphNode::id))
+            .sorted(Comparator.comparing((GraphNode node) -> !focusedNodeIds.contains(node.id())).thenComparing(GraphNode::id))
             .limit(MAX_VISIBLE_NODES)
             .mapMulti(new java.util.function.BiConsumer<GraphNode, java.util.function.Consumer<PlacedNode>>() {
                 private int index;

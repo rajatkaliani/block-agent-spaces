@@ -43,6 +43,15 @@ class GraphFocusResolverTest {
         assertEquals(new GraphLayout.PlacedNode(node("a"), 19, 2, 2), layout.getFirst());
     }
 
+    @Test void layoutMakesFocusedNodesVisibleBeforeUnrelatedNodes() {
+        List<GraphNode> nodes = List.of(node("a"), node("b"), node("c"), node("d"), node("e"), node("f"), node("focused"));
+
+        List<GraphLayout.PlacedNode> layout = GraphLayout.arrange(nodes, java.util.Set.of("focused"));
+
+        assertEquals("focused", layout.getFirst().node().id());
+        assertEquals(6, layout.size());
+    }
+
     private static Agent agent(String taskId, String ticketId, List<String> graphFocus) {
         return new Agent("builder", "Builder", AgentState.WORKING, taskId, ticketId, "workspace", "branch", "", "", "", graphFocus, Instant.EPOCH);
     }

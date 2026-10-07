@@ -264,7 +264,7 @@ public final class WorkspaceBuilder {
         GraphFocusResolver.Focus focus = focusedAgent.map(agent -> GraphFocusResolver.resolve(agent, state.nodes(), state.edges())).orElse(GraphFocusResolver.Focus.empty());
         boolean dimUnrelated = focusedAgent.isPresent() && focus.hasNodes();
         Map<String, BlockPos> positions = new HashMap<>();
-        for (GraphLayout.PlacedNode placed : GraphLayout.arrange(state.nodes())) {
+        for (GraphLayout.PlacedNode placed : GraphLayout.arrange(state.nodes(), focus.nodeIds())) {
             GraphNode node = placed.node();
             BlockPos pos = origin.offset(placed.xOffset(), placed.yOffset(), placed.zOffset());
             positions.put(node.id(), pos);
