@@ -6,6 +6,7 @@ import dev.blockagentspaces.model.*;
 import dev.blockagentspaces.service.WorldState;
 import java.io.*;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.concurrent.Executors;
@@ -23,6 +24,7 @@ public final class LocalBridge {
         server.createContext("/health", x -> safely(x, this::health));
         server.createContext("/v1/snapshot", x -> safely(x, this::snapshot));
         server.createContext("/v1/events", x -> safely(x, this::events));
+        server.createContext("/v1/events/ack", x -> safely(x, this::acknowledge));
         server.createContext("/v1/agents", x -> safely(x, this::agents));
         server.createContext("/v1/tasks", x -> safely(x, this::tasks));
         server.createContext("/v1/graph/nodes", x -> safely(x, this::nodes));
@@ -35,7 +37,21 @@ public final class LocalBridge {
     public boolean isRunning() { return server != null; }
 
     private void health(HttpExchange x) throws IOException { respond(x, 200, "{\"status\":\"ok\",\"bridge\":\"block-agent-spaces\"}"); }
-    private void events(HttpExchange x) throws IOException { respond(x, 200, "[" + String.join(",", state.events()) + "]"); }
+    private void events(HttpExchange x) throws IOException {
+        if (!x.getRequestMethod().equals("GET")) throw new IllegalArgumentException("Only GET is supported for this endpoint");
+        long after = queryLong(x.getRequestURI(), "after", 0);
+        if (after < 0) throw new IllegalArgumentException("after must not be negative");
+        var events = state.eventsAfter(after);
+        long nextCursor = events.isEmpty() ? after : events.getLast().sequence();
+        String payload = events.stream().map(event -> "{\"id\":" + event.sequence() + ",\"type\":" + Json.quote(event.type()) + ",\"subjectId\":" + Json.quote(event.subjectId()) + ",\"createdAt\":" + Json.quote(event.createdAt().toString()) + "}").reduce((a,b) -> a + "," + b).orElse("");
+        respond(x, 200, "{\"events\":[" + payload + "],\"nextCursor\":" + nextCursor + "}");
+    }
+    private void acknowledge(HttpExchange x) throws IOException {
+        requirePost(x);
+        String b = body(x);
+        state.acknowledge(Json.string(b, "consumer"), Json.longValue(b, "cursor"));
+        respond(x, 202, "{\"acknowledged\":true}");
+    }
     private void snapshot(HttpExchange x) throws IOException {
         respond(x, 200, "{\"agents\":" + agentsJson() + ",\"tasks\":" + tasksJson() + ",\"nodes\":" + nodesJson() + ",\"edges\":" + edgesJson() + "}");
     }
@@ -70,6 +86,18 @@ public final class LocalBridge {
     private String edgesJson() { return "[" + state.edges().stream().map(e -> "{\"id\":"+Json.quote(e.id())+",\"sourceId\":"+Json.quote(e.sourceId())+",\"targetId\":"+Json.quote(e.targetId())+",\"relationship\":"+Json.quote(e.relationship())+"}").reduce((a,b)->a+","+b).orElse("") + "]"; }
     private String messagesJson() { return "[" + state.messages().stream().map(m -> "{\"id\":"+Json.quote(m.id())+",\"from\":"+Json.quote(m.from())+",\"to\":"+Json.quote(m.to())+",\"body\":"+Json.quote(m.body())+"}").reduce((a,b)->a+","+b).orElse("") + "]"; }
     private static String body(HttpExchange x) throws IOException { return new String(x.getRequestBody().readAllBytes(), StandardCharsets.UTF_8); }
+    private static long queryLong(URI uri, String name, long defaultValue) {
+        String query = uri.getRawQuery();
+        if (query == null || query.isBlank()) return defaultValue;
+        for (String entry : query.split("&")) {
+            String[] pair = entry.split("=", 2);
+            if (pair.length == 2 && pair[0].equals(name)) {
+                try { return Long.parseLong(pair[1]); }
+                catch (NumberFormatException invalid) { throw new IllegalArgumentException(name + " must be an integer"); }
+            }
+        }
+        return defaultValue;
+    }
     private static void respond(HttpExchange x, int code, String body) throws IOException { byte[] bytes = body.getBytes(StandardCharsets.UTF_8); x.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8"); x.sendResponseHeaders(code, bytes.length); try (OutputStream os=x.getResponseBody()) { os.write(bytes); } }
     private static void requirePost(HttpExchange x) {
         if (!x.getRequestMethod().equals("POST")) throw new IllegalArgumentException("Only GET and POST are supported for this endpoint");

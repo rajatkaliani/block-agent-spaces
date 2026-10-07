@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** Thread-safe source of truth for the bridge and Minecraft presentation layer. */
 public final class WorldState {
@@ -13,7 +14,9 @@ public final class WorldState {
     private final Map<String, GraphNode> nodes = new ConcurrentHashMap<>();
     private final Map<String, GraphEdge> edges = new ConcurrentHashMap<>();
     private final List<AgentMessage> messages = new CopyOnWriteArrayList<>();
-    private final List<String> events = new CopyOnWriteArrayList<>();
+    private final List<BridgeEvent> events = new CopyOnWriteArrayList<>();
+    private final Map<String, Long> acknowledgements = new ConcurrentHashMap<>();
+    private final AtomicLong nextEventSequence = new AtomicLong();
 
     public void putAgent(Agent agent) { agents.put(agent.id(), agent); event("agent.updated", agent.id()); }
     public void putTask(Task task) { tasks.put(task.id(), task); event("task.updated", task.id()); }
@@ -26,7 +29,14 @@ public final class WorldState {
     public Collection<GraphNode> nodes() { return List.copyOf(nodes.values()); }
     public Collection<GraphEdge> edges() { return List.copyOf(edges.values()); }
     public List<AgentMessage> messages() { return List.copyOf(messages); }
-    public List<String> events() { return List.copyOf(events); }
+    public List<BridgeEvent> eventsAfter(long cursor) { return events.stream().filter(event -> event.sequence() > cursor).toList(); }
+    public long latestEventSequence() { return nextEventSequence.get(); }
+    public void acknowledge(String consumer, long cursor) {
+        if (consumer == null || consumer.isBlank() || consumer.length() > 64) throw new IllegalArgumentException("consumer is required and must be at most 64 characters");
+        if (cursor < 0 || cursor > latestEventSequence()) throw new IllegalArgumentException("cursor is outside the available event range");
+        acknowledgements.merge(consumer.trim(), cursor, Math::max);
+    }
+    public long acknowledgementFor(String consumer) { return acknowledgements.getOrDefault(consumer, 0L); }
 
     public void seedExample() {
         putTask(new Task("task-scaffold", "Scaffold Fabric mod", "Create the first runnable mod", "in_progress", Instant.now()));
@@ -42,8 +52,7 @@ public final class WorldState {
     }
 
     private void event(String type, String id) {
-        events.add("{\"type\":\"" + type + "\",\"id\":\"" + escape(id) + "\",\"at\":\"" + Instant.now() + "\"}");
-        if (events.size() > 200) events.remove(0);
+        events.add(new BridgeEvent(nextEventSequence.incrementAndGet(), type, id, Instant.now()));
+        if (events.size() > 500) events.remove(0);
     }
-    private static String escape(String value) { return value.replace("\\", "\\\\").replace("\"", "\\\""); }
 }

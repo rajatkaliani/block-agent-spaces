@@ -11,7 +11,18 @@ class WorldStateTest {
         WorldState state = new WorldState();
         state.putAgent(new Agent("a1", "Builder", AgentState.WORKING, "t1", "Writing code", List.of("n1"), Instant.now()));
         assertEquals(1, state.agents().size());
-        assertTrue(state.events().getFirst().contains("agent.updated"));
+        assertEquals("agent.updated", state.eventsAfter(0).getFirst().type());
+    }
+    @Test void emitsMonotonicallyOrderedEventsAndTracksAcknowledgements() {
+        WorldState state = new WorldState();
+        state.putTask(new Task("t1", "First", "", "open", Instant.now()));
+        state.putTask(new Task("t2", "Second", "", "open", Instant.now()));
+        var events = state.eventsAfter(0);
+        assertEquals(1L, events.getFirst().sequence());
+        assertEquals(2L, events.getLast().sequence());
+        state.acknowledge("demo", 2);
+        assertEquals(2L, state.acknowledgementFor("demo"));
+        assertTrue(state.eventsAfter(2).isEmpty());
     }
     @Test void exampleWorkspaceConnectsAgentAndGraph() {
         WorldState state = new WorldState();

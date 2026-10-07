@@ -18,6 +18,12 @@ final class Json {
         while (values.find()) result.add(unescape(values.group(1)));
         return result;
     }
+    static long longValue(String body, String key) {
+        Matcher m = Pattern.compile("\\\"" + Pattern.quote(key) + "\\\"\\s*:\\s*(-?\\d+)").matcher(body);
+        if (!m.find()) throw new IllegalArgumentException(key + " must be an integer");
+        try { return Long.parseLong(m.group(1)); }
+        catch (NumberFormatException invalid) { throw new IllegalArgumentException(key + " must be an integer"); }
+    }
     static String quote(String value) { return "\"" + escape(value) + "\""; }
     static String escape(String value) { return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n"); }
     static String unescape(String value) { return value.replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\"); }
