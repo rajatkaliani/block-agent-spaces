@@ -58,6 +58,7 @@ public final class BlockAgentsCommands {
             ServerPlayer player = source.getPlayerOrException();
             WorkspaceBuilder.BuildResult result = WORKSPACE_BUILDER.build(player, state);
             tell(source, result.message());
+            if (result.built()) tell(source, "Refreshed " + Math.min(result.agentCount(), 4) + " agent stations, " + Math.min(result.nodeCount(), 6) + " graph nodes, and " + result.edgeCount() + " glowing links.");
             return result.built() ? Command.SINGLE_SUCCESS : 0;
         } catch (Exception error) {
             tell(source, "The workspace could not be built: " + error.getMessage());

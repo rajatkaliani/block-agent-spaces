@@ -17,6 +17,7 @@ public final class BlockAgentSpacesMod implements ModInitializer {
     @Override
     public void onInitialize() {
         BlockAgentsCommands.register(worldState, bridge);
+        AgentInteractionHandler.register(worldState);
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             worldState.seedExample();
             try {
