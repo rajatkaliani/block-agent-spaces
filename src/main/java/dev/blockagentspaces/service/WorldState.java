@@ -10,6 +10,9 @@ import java.util.function.Consumer;
 
 /** Thread-safe source of truth for the bridge and Minecraft presentation layer. */
 public final class WorldState {
+    public static final int MAX_PERSISTED_MESSAGES = 100;
+    public static final int MAX_PERSISTED_EVENTS = 200;
+    public static final int MAX_PERSISTED_ACKNOWLEDGEMENTS = 64;
     private final Map<String, Agent> agents = new ConcurrentHashMap<>();
     private final Map<String, Task> tasks = new ConcurrentHashMap<>();
     private final Map<String, GraphNode> nodes = new ConcurrentHashMap<>();
@@ -21,12 +24,17 @@ public final class WorldState {
     private final List<Consumer<BridgeEvent>> listeners = new CopyOnWriteArrayList<>();
     private volatile boolean bridgeAvailable;
     private volatile boolean externalUpdates;
+    private volatile boolean restoredExternalData;
 
     public void putAgent(Agent agent) { agents.put(agent.id(), agent); event("agent.updated", agent.id()); }
     public void putTask(Task task) { tasks.put(task.id(), task); event("task.updated", task.id()); }
     public void putNode(GraphNode node) { nodes.put(node.id(), node); event("graph.node.updated", node.id()); }
     public void putEdge(GraphEdge edge) { edges.put(edge.id(), edge); event("graph.edge.updated", edge.id()); }
-    public void addMessage(AgentMessage message) { messages.add(message); event("message.created", message.id()); }
+    public void addMessage(AgentMessage message) {
+        messages.add(message);
+        if (messages.size() > MAX_PERSISTED_MESSAGES) messages.remove(0);
+        event("message.created", message.id());
+    }
 
     public Collection<Agent> agents() { return List.copyOf(agents.values()); }
     public Collection<Task> tasks() { return List.copyOf(tasks.values()); }
@@ -43,9 +51,11 @@ public final class WorldState {
     public long acknowledgementFor(String consumer) { return acknowledgements.getOrDefault(consumer, 0L); }
     public void addListener(Consumer<BridgeEvent> listener) { listeners.add(Objects.requireNonNull(listener)); }
     public boolean hasExternalUpdates() { return externalUpdates; }
+    public boolean hasRestoredExternalData() { return restoredExternalData; }
     public boolean bridgeAvailable() { return bridgeAvailable; }
     public String presentationStatus() {
         if (externalUpdates) return "LIVE LOCAL UPDATES";
+        if (restoredExternalData) return "RESTORED LOCAL DATA";
         return bridgeAvailable ? "DEMO DATA • BRIDGE READY" : "DEMO DATA • BRIDGE OFFLINE";
     }
     public void setBridgeAvailable(boolean available) {
@@ -56,7 +66,43 @@ public final class WorldState {
     public void markExternalUpdate() {
         if (externalUpdates) return;
         externalUpdates = true;
+        restoredExternalData = false;
         event("presentation.updated", "local-bridge");
+    }
+
+    /** A bounded, immutable copy for world persistence. It contains only the presentation domain. */
+    public PersistenceSnapshot snapshotForPersistence() {
+        return new PersistenceSnapshot(
+            agents.values().stream().sorted(Comparator.comparing(Agent::id)).toList(),
+            tasks.values().stream().sorted(Comparator.comparing(Task::id)).toList(),
+            nodes.values().stream().sorted(Comparator.comparing(GraphNode::id)).toList(),
+            edges.values().stream().sorted(Comparator.comparing(GraphEdge::id)).toList(),
+            tail(messages, MAX_PERSISTED_MESSAGES),
+            tail(events, MAX_PERSISTED_EVENTS),
+            acknowledgements.entrySet().stream().sorted(Map.Entry.comparingByKey()).limit(MAX_PERSISTED_ACKNOWLEDGEMENTS).collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a, LinkedHashMap::new)),
+            nextEventSequence.get(),
+            externalUpdates || restoredExternalData
+        );
+    }
+
+    /** Restores a previously sanitized snapshot before the bridge is opened. */
+    public boolean restore(PersistenceSnapshot snapshot) {
+        agents.clear(); tasks.clear(); nodes.clear(); edges.clear(); messages.clear(); events.clear(); acknowledgements.clear();
+        snapshot.agents().forEach(agent -> agents.put(agent.id(), agent));
+        snapshot.tasks().forEach(task -> tasks.put(task.id(), task));
+        snapshot.nodes().forEach(node -> nodes.put(node.id(), node));
+        snapshot.edges().forEach(edge -> edges.put(edge.id(), edge));
+        messages.addAll(tail(snapshot.messages(), MAX_PERSISTED_MESSAGES));
+        events.addAll(tail(snapshot.events(), MAX_PERSISTED_EVENTS));
+        snapshot.acknowledgements().entrySet().stream().limit(MAX_PERSISTED_ACKNOWLEDGEMENTS).forEach(entry -> acknowledgements.put(entry.getKey(), entry.getValue()));
+        long greatestEvent = events.stream().mapToLong(BridgeEvent::sequence).max().orElse(0);
+        nextEventSequence.set(Math.max(snapshot.nextEventSequence(), greatestEvent));
+        bridgeAvailable = false;
+        externalUpdates = false;
+        restoredExternalData = snapshot.hadExternalData();
+        boolean restored = !snapshot.isEmpty();
+        if (restored) event("presentation.restored", "runtime-state");
+        return restored;
     }
 
     public void seedExample() {
@@ -83,10 +129,26 @@ public final class WorldState {
     private void event(String type, String id) {
         BridgeEvent event = new BridgeEvent(nextEventSequence.incrementAndGet(), type, id, Instant.now());
         events.add(event);
-        if (events.size() > 500) events.remove(0);
+        if (events.size() > MAX_PERSISTED_EVENTS) events.remove(0);
         for (Consumer<BridgeEvent> listener : listeners) {
             try { listener.accept(event); }
             catch (RuntimeException ignored) { }
+        }
+    }
+
+    private static <T> List<T> tail(List<T> values, int limit) {
+        return List.copyOf(values.subList(Math.max(0, values.size() - limit), values.size()));
+    }
+
+    public record PersistenceSnapshot(List<Agent> agents, List<Task> tasks, List<GraphNode> nodes, List<GraphEdge> edges,
+                                      List<AgentMessage> messages, List<BridgeEvent> events, Map<String, Long> acknowledgements,
+                                      long nextEventSequence, boolean hadExternalData) {
+        public PersistenceSnapshot {
+            agents = List.copyOf(agents); tasks = List.copyOf(tasks); nodes = List.copyOf(nodes); edges = List.copyOf(edges);
+            messages = List.copyOf(messages); events = List.copyOf(events); acknowledgements = Map.copyOf(acknowledgements);
+        }
+        public boolean isEmpty() {
+            return agents.isEmpty() && tasks.isEmpty() && nodes.isEmpty() && edges.isEmpty() && messages.isEmpty() && !hadExternalData;
         }
     }
 }

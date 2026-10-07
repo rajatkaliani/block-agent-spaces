@@ -126,7 +126,13 @@ The event stream is an outbox signal, not a copy of every payload. When it repor
 
 The local bridge only changes `WorldState`; it never writes Minecraft blocks from an HTTP worker thread. Each bridge update is coalesced for a few server ticks, then the Minecraft server thread refreshes installed Block Agent Spaces locations. Managed agent stations, tagged NPC labels and positions, graph nodes and links, the conversation lectern, and the Goat status sign update together. Stale tagged NPCs and obsolete graph blocks are cleaned up as part of that reconciliation.
 
-The Goat control point visibly says either `DEMO DATA • BRIDGE READY`, `DEMO DATA • BRIDGE OFFLINE`, or `LIVE LOCAL UPDATES`. “Live” means a local process has posted to this mod's loopback bridge; it does not claim that any particular agent product is connected. If a player changes any recorded generated block, automatic and manual refreshes skip that installation rather than overwrite the change.
+The Goat control point visibly says either `DEMO DATA • BRIDGE READY`, `DEMO DATA • BRIDGE OFFLINE`, `RESTORED LOCAL DATA`, or `LIVE LOCAL UPDATES`. “Live” means a local process has posted to this mod's loopback bridge during this server run; it does not claim that any particular agent product is connected. If a player changes any recorded generated block, automatic and manual refreshes skip that installation rather than overwrite the change.
+
+### Restart-safe state
+
+The world saves the generated-installation ownership metadata plus a bounded snapshot of agent, ticket, graph, conversation, bridge-event cursor, and display-source state. On restart, the latest saved snapshot is restored before demo data is seeded, then the normal safe reconciler redraws only managed space. A restored world is labeled `RESTORED LOCAL DATA` until the local adapter publishes a fresh update.
+
+This is presentation continuity, not a replacement for an external Goat adapter's source of truth. The mod never stores pairing tokens, bridge configuration, arbitrary absolute filesystem paths, or unbounded message/event logs. The adapter should republish authoritative workspaces, Git state, ticket history, and any missed events after reconnecting.
 
 See [the example payloads](examples/bridge-payloads.json) for each domain object. The initial HTTP event feed is deliberately compatible with polling; a true WebSocket/SSE transport can be added behind the same `WorldState` service without changing the game-facing domain model.
 

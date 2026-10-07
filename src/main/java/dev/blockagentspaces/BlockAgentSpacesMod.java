@@ -5,6 +5,7 @@ import dev.blockagentspaces.command.BlockAgentsCommands;
 import dev.blockagentspaces.service.WorldState;
 import dev.blockagentspaces.service.AgentCommunicationService;
 import dev.blockagentspaces.service.WorkspaceAutoRefresher;
+import dev.blockagentspaces.service.RuntimeStatePersistence;
 import dev.blockagentspaces.network.ConversationPayloads;
 import dev.blockagentspaces.world.WorkspaceBuilder;
 import net.fabricmc.api.ModInitializer;
@@ -20,6 +21,7 @@ public final class BlockAgentSpacesMod implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     private final WorldState worldState = new WorldState();
     private final WorkspaceAutoRefresher autoRefresher = new WorkspaceAutoRefresher(worldState, new WorkspaceBuilder());
+    private final RuntimeStatePersistence runtimePersistence = new RuntimeStatePersistence(worldState);
     private final LocalBridge bridge = new LocalBridge(worldState, autoRefresher::requestExternalUpdate);
 
     @Override
@@ -35,9 +37,12 @@ public final class BlockAgentSpacesMod implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             WorkspaceAutoRefresher.RefreshReport report = autoRefresher.tick(server);
             if (report.protectedInstallations() > 0) LOGGER.warn("Skipped {} Block Agent Spaces refresh(es) because player changes were protected", report.protectedInstallations());
+            runtimePersistence.tick(server);
         });
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-            worldState.seedExample();
+            boolean restored = runtimePersistence.restore(server);
+            if (!restored) worldState.seedExample();
+            else LOGGER.info("Restored Block Agent Spaces runtime state; waiting for the local adapter to publish fresh updates");
             try {
                 bridge.start();
                 worldState.setBridgeAvailable(true);
@@ -50,6 +55,7 @@ public final class BlockAgentSpacesMod implements ModInitializer {
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             bridge.stop();
             worldState.setBridgeAvailable(false);
+            runtimePersistence.flush(server);
         });
     }
 }
