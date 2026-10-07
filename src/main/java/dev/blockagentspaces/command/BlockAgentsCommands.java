@@ -1,6 +1,7 @@
 package dev.blockagentspaces.command;
 
 import com.mojang.brigadier.Command;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.blockagentspaces.bridge.LocalBridge;
 import dev.blockagentspaces.service.WorldState;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -10,21 +11,47 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import dev.blockagentspaces.world.WorkspaceBuilder;
+import dev.blockagentspaces.service.AgentCommunicationService;
 
 /** Command-based first presentation while custom rooms and entity rendering are being built. */
 public final class BlockAgentsCommands {
     private static final WorkspaceBuilder WORKSPACE_BUILDER = new WorkspaceBuilder();
     private BlockAgentsCommands() { }
     public static void register(WorldState state, LocalBridge bridge) {
+        AgentCommunicationService communication = new AgentCommunicationService(state);
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
             Commands.literal("blockagents")
                 .then(Commands.literal("onboarding").executes(c -> onboarding(c.getSource(), bridge)))
                 .then(Commands.literal("build").executes(c -> build(c.getSource(), state)))
+                .then(Commands.literal("refresh").executes(c -> build(c.getSource(), state)))
+                .then(Commands.literal("inspect")
+                    .then(Commands.argument("agent", StringArgumentType.word())
+                        .executes(c -> inspect(c.getSource(), communication, StringArgumentType.getString(c, "agent")))))
+                .then(Commands.literal("message")
+                    .then(Commands.argument("agent", StringArgumentType.word())
+                        .then(Commands.argument("text", StringArgumentType.greedyString())
+                            .executes(c -> message(c.getSource(), communication, StringArgumentType.getString(c, "agent"), StringArgumentType.getString(c, "text"))))))
                 .then(Commands.literal("status").executes(c -> status(c.getSource(), state, bridge)))
                 .then(Commands.literal("agents").executes(c -> agents(c.getSource(), state)))
                 .then(Commands.literal("graph").executes(c -> graph(c.getSource(), state)))
                 .then(Commands.literal("seed").executes(c -> { state.seedExample(); tell(c.getSource(), "Example workspace loaded."); return Command.SINGLE_SUCCESS; }))
         ));
+    }
+    private static int inspect(CommandSourceStack source, AgentCommunicationService communication, String reference) {
+        return communication.findAgent(reference).map(agent -> {
+            tell(source, agent.displayName() + " [" + agent.state() + "] — " + agent.detail());
+            tell(source, "Current task: " + (agent.taskId().isBlank() ? "none" : agent.taskId()) + " | Graph focus: " + (agent.graphFocus().isEmpty() ? "none" : String.join(", ", agent.graphFocus())));
+            communication.recentMessageFor(agent.id()).ifPresentOrElse(
+                message -> tell(source, "Recent message (" + message.from() + " → " + message.to() + "): " + message.body()),
+                () -> tell(source, "Recent message: none."));
+            return Command.SINGLE_SUCCESS;
+        }).orElseGet(() -> { tell(source, "No agent named '" + reference + "' is currently published. Use /blockagents agents to list agents."); return 0; });
+    }
+    private static int message(CommandSourceStack source, AgentCommunicationService communication, String reference, String body) {
+        AgentCommunicationService.SendResult result = communication.sendFromMinecraft(reference, body);
+        if (!result.sent()) { tell(source, result.error()); return 0; }
+        tell(source, "Message delivered to " + result.agent().displayName() + ". The local bridge now exposes it at /v1/messages.");
+        return Command.SINGLE_SUCCESS;
     }
     private static int build(CommandSourceStack source, WorldState state) {
         try {
@@ -40,7 +67,7 @@ public final class BlockAgentsCommands {
     private static int onboarding(CommandSourceStack source, LocalBridge bridge) {
         tell(source, "Block Agent Spaces is ready. The workspace room will host NPC agents; the adjacent glass observatory will render the knowledge graph.");
         tell(source, bridge.isRunning() ? "Integration bridge: connected at localhost:8787." : "Integration bridge: unavailable; use /blockagents status for details.");
-        tell(source, "Try /blockagents build, /blockagents agents, /blockagents graph, or /blockagents seed.");
+        tell(source, "Try /blockagents build, /blockagents inspect <agent>, /blockagents message <agent> <text>, or /blockagents refresh.");
         return Command.SINGLE_SUCCESS;
     }
     private static int status(CommandSourceStack source, WorldState state, LocalBridge bridge) {

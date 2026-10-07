@@ -1,0 +1,50 @@
+package dev.blockagentspaces.service;
+
+import dev.blockagentspaces.model.Agent;
+import dev.blockagentspaces.model.AgentMessage;
+import java.time.Instant;
+import java.util.Comparator;
+import java.util.Optional;
+import java.util.UUID;
+
+/** Resolves human-friendly agent names and keeps player-originated messages bounded. */
+public final class AgentCommunicationService {
+    private static final int MAX_REFERENCE_LENGTH = 64;
+    private static final int MAX_MESSAGE_LENGTH = 400;
+    private final WorldState state;
+
+    public AgentCommunicationService(WorldState state) { this.state = state; }
+
+    public Optional<Agent> findAgent(String reference) {
+        if (reference == null || reference.isBlank() || reference.length() > MAX_REFERENCE_LENGTH) return Optional.empty();
+        String normalized = reference.trim();
+        return state.agents().stream().filter(a -> a.id().equalsIgnoreCase(normalized)).findFirst()
+            .or(() -> state.agents().stream().filter(a -> a.displayName().equalsIgnoreCase(normalized)).findFirst());
+    }
+
+    public Optional<AgentMessage> recentMessageFor(String agentId) {
+        return state.messages().stream()
+            .filter(message -> message.from().equalsIgnoreCase(agentId) || message.to().equalsIgnoreCase(agentId))
+            .max(Comparator.comparing(AgentMessage::createdAt));
+    }
+
+    public SendResult sendFromMinecraft(String reference, String body) {
+        Optional<Agent> agent = findAgent(reference);
+        if (agent.isEmpty()) return SendResult.error("No agent named '" + safeLabel(reference) + "' is currently published.");
+        if (body == null || body.isBlank()) return SendResult.error("Message text cannot be empty.");
+        if (body.length() > MAX_MESSAGE_LENGTH) return SendResult.error("Message is too long; keep it under " + MAX_MESSAGE_LENGTH + " characters.");
+        AgentMessage message = new AgentMessage("minecraft-" + UUID.randomUUID(), "minecraft-player", agent.get().id(), body.trim(), Instant.now());
+        state.addMessage(message);
+        return SendResult.success(message, agent.get());
+    }
+
+    private static String safeLabel(String value) {
+        if (value == null || value.isBlank()) return "";
+        return value.length() <= MAX_REFERENCE_LENGTH ? value.trim() : value.substring(0, MAX_REFERENCE_LENGTH);
+    }
+
+    public record SendResult(boolean sent, String error, AgentMessage message, Agent agent) {
+        static SendResult success(AgentMessage message, Agent agent) { return new SendResult(true, "", message, agent); }
+        static SendResult error(String error) { return new SendResult(false, error, null, null); }
+    }
+}
