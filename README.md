@@ -24,24 +24,23 @@ This first vertical slice compiles as a Fabric mod for **Minecraft Java 26.3**, 
 In a world with the mod installed, run:
 
 ```text
-/blockagents onboarding
-/blockagents build
+/blockagents start
 /blockagents status
-/blockagents agents
-/blockagents graph
 ```
 
-`onboarding` gives the shortest possible introduction and reports whether the local bridge is live. `/blockagents build` is the main first-run command: it finds a small clear volume above nearby open ground, then creates an elevated agent workspace, central corridor, and glass-walled graph observatory. It refuses to overwrite non-air blocks, and repeating it refreshes the same installation for that player during the game session.
+`/blockagents start` is the single first-run action: it seeds the sample team when needed, validates the ground under and around the command player, builds the installation, then opens Goat's dashboard. Stand near the middle of a **level 31×11 patch of solid, dry ground** with six blocks of open air above it. The build creates an oak entry gateway, a developer workspace, Goat's central control point, a team-message lectern, and the glass-walled graph observatory around that location.
+
+If the spot is unsuitable, the game names the first issue—unsafe ground, uneven terrain, or the exact relative clearance obstruction—and changes nothing. `/blockagents build` is the explicit advanced/rebuild alias; after a successful build it refreshes the same recorded installation rather than claiming a new patch. The footprint and every block placed by the mod are saved with the world. A refresh stops before changing any block that no longer matches the recorded generated state, so a player's later construction is never overwritten.
 
 The workspace populates up to four current agents as stationary named villagers at color-coded stations: green working, red blocked, yellow reviewing, blue complete, and gray idle. **Right-click a workspace villager** to see its state and task in the action bar, followed by its detail, graph focus, and latest message in chat—no command required. The observatory turns up to six graph nodes into floating colored blocks and links known relationships with glowing End Rod paths. Two in-world legend signs explain the node colors and edge glow. `agents` surfaces each agent's full current detail and task, while `graph` provides a compact textual inspection view. `/blockagents seed` restores the sample workspace at any time.
 
 ### Five-minute first run
 
 1. Put the mod jar in the Minecraft Fabric `mods` folder and launch or join a world.
-2. Run `/blockagents onboarding` to confirm the local bridge is connected.
-3. Run `/blockagents build` while standing under open sky. The mod builds only inside a clear elevated volume; it will not replace existing blocks.
+2. Find a level 31×11 patch of solid ground with open air above it, then stand near its middle.
+3. Run `/blockagents start`. It seeds the demo, validates the patch, builds the complete space around you, and opens Goat's dashboard.
 4. Point a local orchestrator at `http://127.0.0.1:8787` and publish agent and graph events.
-5. Run `/blockagents build` again to refresh the world installation, then use `/blockagents agents` or `/blockagents graph` for details.
+5. Right-click an agent to open its notebook. Use `/blockagents build` only when you want to refresh the existing generated installation from the newest bridge state.
 
 ### Copy-paste bridge quickstart
 
@@ -70,7 +69,7 @@ Once agents are published, these commands make the world an active workspace rat
 /blockagents refresh
 ```
 
-`inspect` resolves either an agent ID or its display name and shows its state, current task, latest message, and linked graph elements. `message` records a bounded player-to-agent message in the same local state exposed at `/v1/messages`, ready for a local orchestrator to poll. It rejects unknown names, empty text, and messages over 400 characters. `refresh` redraws the current player's existing installation from the newest bridge state without looking for or altering another build location, then reports the number of agent stations, graph nodes, and glowing links refreshed.
+`inspect` resolves either an agent ID or its display name and shows its state, current task, latest message, and linked graph elements. `message` records a bounded player-to-agent message in the same local state exposed at `/v1/messages`, ready for a local orchestrator to poll. It rejects unknown names, empty text, and messages over 400 characters. `refresh` redraws the current player's existing installation from the newest bridge state without looking for or altering another build location, then reports the number of agent stations, graph nodes, and glowing links refreshed. The normal interaction path is the clickable agent notebook; these commands remain useful for server operators and troubleshooting.
 
 ### Local integration bridge
 

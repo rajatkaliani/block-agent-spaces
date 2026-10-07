@@ -14,7 +14,7 @@ import dev.blockagentspaces.world.WorkspaceBuilder;
 import dev.blockagentspaces.service.AgentCommunicationService;
 import dev.blockagentspaces.ui.AgentDashboard;
 
-/** Command-based first presentation while custom rooms and entity rendering are being built. */
+/** Small command surface for onboarding and server-side maintenance; agents are normally clicked in-world. */
 public final class BlockAgentsCommands {
     private static final WorkspaceBuilder WORKSPACE_BUILDER = new WorkspaceBuilder();
     private BlockAgentsCommands() { }
@@ -81,9 +81,9 @@ public final class BlockAgentsCommands {
         }
     }
     private static int onboarding(CommandSourceStack source, LocalBridge bridge) {
-        tell(source, "Block Agent Spaces is ready. The workspace room will host NPC agents; the adjacent glass observatory will render the knowledge graph.");
+        tell(source, "Stand near the middle of a level 31×11 patch of solid, dry ground with clear air above it.");
         tell(source, bridge.isRunning() ? "Integration bridge: connected at localhost:8787." : "Integration bridge: unavailable; use /blockagents status for details.");
-        tell(source, "Fastest start: /blockagents start. It seeds demo data if needed, builds the workspace, and opens Goat's dashboard.");
+        tell(source, "Fastest start: /blockagents start. It validates the patch, builds the complete space around you, and opens Goat's dashboard.");
         return Command.SINGLE_SUCCESS;
     }
     private static int status(CommandSourceStack source, WorldState state, LocalBridge bridge) {
