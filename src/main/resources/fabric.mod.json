@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "block_agent_spaces",
+  "version": "${version}",
+  "name": "Block Agent Spaces",
+  "description": "A Minecraft-native living knowledge graph and agent workspace.",
+  "authors": ["Block Agent Spaces contributors"],
+  "contact": { "sources": "https://github.com/rajatkaliani/block-agent-spaces" },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": { "main": ["dev.blockagentspaces.BlockAgentSpacesMod"] },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "fabric-api": "*",
+    "minecraft": "~26.3",
+    "java": ">=25"
+  }
+}

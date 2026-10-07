@@ -1,0 +1,33 @@
+{
+  "agent": {
+    "id": "builder",
+    "displayName": "Builder",
+    "state": "working",
+    "taskId": "task-scaffold",
+    "detail": "Creating the Fabric project",
+    "graphFocus": ["project", "fabric", "task-scaffold"]
+  },
+  "task": {
+    "id": "task-scaffold",
+    "title": "Scaffold Fabric mod",
+    "description": "Create the first runnable mod",
+    "status": "in_progress"
+  },
+  "node": {
+    "id": "project",
+    "label": "Block Agent Spaces",
+    "type": "project"
+  },
+  "edge": {
+    "id": "task-builds-project",
+    "sourceId": "task-scaffold",
+    "targetId": "project",
+    "relationship": "builds"
+  },
+  "message": {
+    "id": "message-1",
+    "from": "orchestrator",
+    "to": "builder",
+    "body": "Please report when the scaffold compiles."
+  }
+}

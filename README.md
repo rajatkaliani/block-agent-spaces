@@ -17,6 +17,59 @@ The graph can represent notes, files, tasks, projects, and the relationships bet
 4. Highlight the nodes and edges connected to a selected agent.
 5. Add a lightweight local event stream so agent position, status, and graph focus can update in real time.
 
+## What is runnable today
+
+This first vertical slice compiles as a Fabric mod for **Minecraft Java 26.3**, the latest stable version when this scaffold was created. It starts a local-only integration bridge on `127.0.0.1:8787`, seeds a small example workspace, and exposes an in-game command interface while the custom room and rendering layer is under construction.
+
+In a world with the mod installed, run:
+
+```text
+/blockagents onboarding
+/blockagents status
+/blockagents agents
+/blockagents graph
+```
+
+`onboarding` gives the shortest possible introduction and reports whether the local bridge is live. `agents` is the initial, command-driven stand-in for selecting an NPC; it shows each agent's status, detail, and task. `graph` is the debug representation of the observatory. `/blockagents seed` restores the sample workspace at any time.
+
+### Local integration bridge
+
+External agent orchestrators can publish data to the running mod through HTTP. The bridge only listens on localhost, so it is intended for trusted processes on the same computer. It accepts simple flat JSON payloads and returns the current state for visualizers or debugging.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Check that the bridge is running. |
+| `GET` | `/v1/snapshot` | Get agents, tasks, graph nodes, and graph edges. |
+| `GET` | `/v1/events` | Poll recent state-change events. |
+| `GET` / `POST` | `/v1/agents` | Read or update NPC agent status. |
+| `GET` / `POST` | `/v1/tasks` | Read or update task data. |
+| `GET` / `POST` | `/v1/graph/nodes` | Read or update knowledge graph nodes. |
+| `GET` / `POST` | `/v1/graph/edges` | Read or update graph relationships. |
+| `GET` / `POST` | `/v1/messages` | Read or send messages between orchestrator and agents. |
+
+For example, while Minecraft is running:
+
+```bash
+curl http://127.0.0.1:8787/health
+curl -X POST http://127.0.0.1:8787/v1/agents \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"researcher","displayName":"Researcher","state":"working","taskId":"find-apis","detail":"Mapping the event API","graphFocus":["project","event-api"]}'
+curl -X POST http://127.0.0.1:8787/v1/graph/nodes \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"event-api","label":"Event API","type":"note"}'
+```
+
+See [the example payloads](examples/bridge-payloads.json) for each domain object. The initial HTTP event feed is deliberately compatible with polling; a true WebSocket/SSE transport can be added behind the same `WorldState` service without changing the game-facing domain model.
+
+## Development setup
+
+1. Install JDK 25 (the current Minecraft 26.3/Fabric toolchain requirement).
+2. Clone this repository.
+3. Run `./gradlew build` to compile and test.
+4. Run `./gradlew runClient` to open a development Minecraft client.
+
+The built mod jar is placed in `build/libs`. The project uses official Mojang mappings because modern Minecraft releases no longer need the older remapping model.
+
 ## Proposed technical direction
 
 - Minecraft Java Edition with Fabric, targeting the latest supported game version.
@@ -26,4 +79,4 @@ The graph can represent notes, files, tasks, projects, and the relationships bet
 
 ## Status
 
-This repository is at the concept and MVP-design stage. The next step is to scaffold the Fabric mod and build the first static agent room and graph observatory.
+The initial runnable scaffold is complete: a Fabric project, domain model, local bridge, sample data, command-based onboarding/debug views, tests, and GitHub Actions build verification are included. The next delivery is the visual layer: generate the workspace and glass observatory in-world, represent agents with NPC entities, and render selectable nodes and glowing graph edges.
