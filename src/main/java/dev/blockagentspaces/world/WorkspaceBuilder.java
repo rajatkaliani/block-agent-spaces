@@ -153,7 +153,6 @@ public final class WorkspaceBuilder {
         renderGoatControlPoint(target, origin, state);
         renderAgents(target, origin, state);
         renderTicketBoard(target, origin, state);
-        renderLegend(target, origin);
         put(target, origin.offset(12, 1, 2), Blocks.LECTERN);
         put(target, origin.offset(15, 1, 7), Blocks.OAK_SIGN);
         return target;
@@ -419,11 +418,6 @@ public final class WorkspaceBuilder {
         };
     }
 
-    private void renderLegend(Map<BlockPos, BlockState> target, BlockPos origin) {
-        put(target, origin.offset(19, 1, 7), Blocks.OAK_SIGN);
-        put(target, origin.offset(25, 1, 7), Blocks.OAK_SIGN);
-    }
-
 
     private void apply(ServerLevel level, Map<BlockPos, BlockState> target) {
         target.forEach((position, state) -> {
@@ -437,8 +431,6 @@ public final class WorkspaceBuilder {
         writeSign(level, origin.offset(15, 1, 6), List.of("GOAT CONTROL", "LEAD AGENT", "TICKETS + REVIEW", "CLICK GOAT/BOARD"));
         String[] status = state.presentationStatus().split(" • ", 2);
         writeSign(level, origin.offset(15, 1, 7), List.of("SPACE STATUS", status[0], status.length > 1 ? status[1] : "", "TEXT + COLOR"));
-        writeSign(level, origin.offset(19, 1, 7), List.of("GRAPH LEGEND", "Purple: projects", "Blue: files", "Yellow: tasks"));
-        writeSign(level, origin.offset(25, 1, 7), List.of("White: notes", "Glow rods: links", "Glass room =", "knowledge graph"));
     }
 
     private void renderTeamLog(ServerLevel level, BlockPos origin, WorldState state) {
