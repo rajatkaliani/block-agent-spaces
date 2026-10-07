@@ -12,6 +12,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import dev.blockagentspaces.world.WorkspaceBuilder;
 import dev.blockagentspaces.service.AgentCommunicationService;
+import dev.blockagentspaces.ui.AgentDashboard;
 
 /** Command-based first presentation while custom rooms and entity rendering are being built. */
 public final class BlockAgentsCommands {
@@ -22,6 +23,8 @@ public final class BlockAgentsCommands {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
             Commands.literal("blockagents")
                 .then(Commands.literal("onboarding").executes(c -> onboarding(c.getSource(), bridge)))
+                .then(Commands.literal("dashboard").executes(c -> dashboard(c.getSource(), state)))
+                .then(Commands.literal("start").executes(c -> start(c.getSource(), state, bridge)))
                 .then(Commands.literal("build").executes(c -> build(c.getSource(), state)))
                 .then(Commands.literal("refresh").executes(c -> build(c.getSource(), state)))
                 .then(Commands.literal("inspect")
@@ -36,6 +39,18 @@ public final class BlockAgentsCommands {
                 .then(Commands.literal("graph").executes(c -> graph(c.getSource(), state)))
                 .then(Commands.literal("seed").executes(c -> { state.seedExample(); tell(c.getSource(), "Example workspace loaded."); return Command.SINGLE_SUCCESS; }))
         ));
+    }
+    private static int dashboard(CommandSourceStack source, WorldState state) {
+        try { AgentDashboard.open(source.getPlayerOrException(), state); return Command.SINGLE_SUCCESS; }
+        catch (Exception error) { tell(source, "The dashboard can only be opened by a player in a world."); return 0; }
+    }
+    private static int start(CommandSourceStack source, WorldState state, LocalBridge bridge) {
+        if (state.agents().isEmpty()) state.seedExample();
+        int built = build(source, state);
+        if (built == 0) return 0;
+        int opened = dashboard(source, state);
+        if (opened != 0) tell(source, bridge.isRunning() ? "Onboarding complete. A local orchestrator can publish updates to localhost:8787." : "Workspace is ready, but the local bridge is offline.");
+        return opened;
     }
     private static int inspect(CommandSourceStack source, AgentCommunicationService communication, String reference) {
         return communication.findAgent(reference).map(agent -> {
@@ -68,7 +83,7 @@ public final class BlockAgentsCommands {
     private static int onboarding(CommandSourceStack source, LocalBridge bridge) {
         tell(source, "Block Agent Spaces is ready. The workspace room will host NPC agents; the adjacent glass observatory will render the knowledge graph.");
         tell(source, bridge.isRunning() ? "Integration bridge: connected at localhost:8787." : "Integration bridge: unavailable; use /blockagents status for details.");
-        tell(source, "Try /blockagents build, /blockagents inspect <agent>, /blockagents message <agent> <text>, or /blockagents refresh.");
+        tell(source, "Fastest start: /blockagents start. It seeds demo data if needed, builds the workspace, and opens Goat's dashboard.");
         return Command.SINGLE_SUCCESS;
     }
     private static int status(CommandSourceStack source, WorldState state, LocalBridge bridge) {
