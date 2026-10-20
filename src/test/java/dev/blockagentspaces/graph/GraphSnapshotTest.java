@@ -32,4 +32,18 @@ class GraphSnapshotTest {
         assertTrue(graph.nodes().stream().anyMatch(n -> n.id().equals("n139")));
         assertEquals(1, graph.edges().size());
     }
+
+    @Test void selectedNodeBringsItsConnectedNeighborhoodIntoAFullSnapshot() {
+        WorldState state = new WorldState();
+        for (int i = 0; i < 140; i++) state.putNode(new GraphNode(String.format("a%03d", i), "unrelated", "note", Map.of()));
+        state.putNode(new GraphNode("z-focus", "focus", "ticket", Map.of()));
+        state.putNode(new GraphNode("z-linked", "linked", "file", Map.of()));
+        state.putEdge(new GraphEdge("focus-link", "z-focus", "z-linked", "touches"));
+
+        GraphPayloads.Open graph = GraphSnapshot.from(state, "z-focus");
+
+        assertEquals("z-focus", graph.selected());
+        assertTrue(graph.nodes().stream().anyMatch(n -> n.id().equals("z-linked")));
+        assertTrue(graph.edges().stream().anyMatch(e -> e.source().equals("z-focus") && e.target().equals("z-linked")));
+    }
 }
