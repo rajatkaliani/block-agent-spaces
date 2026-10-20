@@ -7,7 +7,7 @@ Minecraft is the interface, not the source of truth. A local adapter owns agent 
 ## What it visualizes
 
 - **Agent workspace:** named NPCs represent Goat (the lead) and developer or reviewer agents. Their state, ticket, branch, workspace, review status, and acceptance status are available from a click-to-chat notebook.
-- **Knowledge-graph observatory:** a dark, glass-fronted room renders graph nodes as interactive holograms and relationships as glowing links. Selecting an agent focuses the graph on its published context; selecting a graph node opens a linked agent notebook when one exists.
+- **Knowledge graph:** open a black-canvas visualization from any notebook or click an observatory hologram. Search, pan, zoom, select nodes, inspect their relationships, and open a linked agent notebook. It refreshes while open and renders up to 128 nodes and 256 links from a bounded snapshot.
 - **Goat control point:** Goat is the coordination role: it can triage work, delegate tickets, request review, and report acceptance when an external orchestrator confirms it. The physical ticket board shows adapter-reported Ready, Active, Blocked, Review, and Accepted work.
 - **Conversation record:** notebooks clearly separate `You • sent` notes from incoming adapter replies. The lectern is a shared, bounded activity log.
 
@@ -41,6 +41,8 @@ Goat is designed to supervise—not impersonate—a development team. A real dev
 
 The included Codex adapter is guarded: dry-run is the default, and worktree creation/execution require explicit opt-in. It never auto-merges, pushes, deletes branches, or removes worktrees. See [Codex developer runtime](docs/codex-developer-runtime.md) for setup and safety details.
 
+The included Codex adapter accepts structured requests to Goat; it is not yet a general-purpose conversational agent. A note will not receive a real answer unless a compatible running adapter handles it.
+
 ## Quick start
 
 Requirements: Minecraft Java **26.3**, Fabric, and JDK 25 for development.
@@ -54,7 +56,7 @@ In the development client:
 
 1. Create or join a world and stand near the middle of a level 31×11 patch of solid, dry ground with open air above it.
 2. Run `/blockagents start` once. It validates the site, builds the space around the player, and opens Goat’s console.
-3. Right-click an NPC to inspect its notebook, message it, or focus the graph. Right-click a graph hologram to inspect its relationship context or open its linked notebook.
+3. Right-click an NPC to inspect and message it. Select **Graph** in its notebook, or right-click an observatory hologram to open the graph at that node.
 
 The installation is persistent and player-safe: refreshes use the recorded installation location and stop rather than overwrite a block a player has changed.
 
@@ -66,7 +68,7 @@ With a world open, start the zero-dependency bridge demo:
 python3 examples/bridge_demo.py
 ```
 
-Right-click Builder, send a note, then use the notebook’s **Refresh** button. The demo sends a clearly labelled `DEMO REPLY`; it never echoes player text or claims an agent took real action. The deeper integration examples are:
+Right-click Builder and send a note. The notebook refreshes automatically while open; the server confirms whether it accepted the note, and a reply appears only if an adapter publishes one. The demo sends a clearly labelled `DEMO REPLY`; it never echoes player text or claims an agent took real action. The deeper integration examples are:
 
 - [Goat bridge adapter](examples/goat_bridge_adapter.py): replay-safe local message consumer with pairing support.
 - [Goat lead demo](examples/goat_lead_adapter_demo.py): explicitly labelled deterministic triage visualization.
