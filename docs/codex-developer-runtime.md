@@ -15,7 +15,9 @@ for review, or a place to put credentials.
 
 1. Polls the local bridge's ordered event feed and stores a private replay
    cursor. Pairing tokens are only sent as local mutation headers and are never
-   printed or written to the state file.
+   printed or written to the state file. A first launch baselines existing
+   notebook messages so old ticket requests cannot start a new Codex run;
+   restarts with a state file resume unfinished work safely.
 2. Handles an explicit player-to-Goat ticket request. Goat’s **Request ticket** button creates the format automatically; bridge clients can also send it directly:
 
    ```text

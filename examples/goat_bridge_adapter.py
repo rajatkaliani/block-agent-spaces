@@ -310,6 +310,13 @@ class GoatBridgeAdapter:
         self.store = store
         self.state = store.load()
 
+    def ignore_existing_messages(self) -> None:
+        """Baseline message IDs before polling; new messages remain eligible."""
+        for message in self.bridge.messages():
+            if player_message_to_goat(message):
+                self.state.mark_handled(message["id"])
+        self.store.save(self.state)
+
     def poll_once(self) -> int:
         feed = self.bridge.events_after(self.state.cursor)
         events = feed.get("events")
@@ -377,7 +384,10 @@ def run(arguments: argparse.Namespace) -> None:
     client = BridgeClient(os.environ.get("BLOCK_AGENT_SPACES_BRIDGE_URL", DEFAULT_BRIDGE_URL), token)
     mode = bridge_mode(client.health(), bool(token))
     state_file = Path(arguments.state_file).expanduser() if arguments.state_file else default_state_file()
+    fresh_state = not state_file.exists()
     adapter = GoatBridgeAdapter(client, StateStore(state_file))
+    if fresh_state:
+        adapter.ignore_existing_messages()
     print(f"Connected to Block Agent Spaces bridge in {mode.replace('_', ' ')} mode.")
     print("Goat adapter is watching for Minecraft messages. Press Ctrl-C to stop.")
     while True:
@@ -418,6 +428,19 @@ class FakeBridge:
 
 
 class GoatBridgeAdapterTest(unittest.TestCase):
+    def test_first_start_ignores_old_message_but_answers_new_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = FakeBridge()
+            bridge.feed = {"events": [{"type": "message.created"}], "nextCursor": 2}
+            bridge.message_list = [{"id": "old", "from": "minecraft-player", "to": "goat", "body": "hello earlier"}]
+            adapter = GoatBridgeAdapter(bridge, StateStore(Path(directory) / "state.json"))
+            adapter.ignore_existing_messages()
+            bridge.message_list.append({"id": "new", "from": "minecraft-player", "to": "goat", "body": "status"})
+            adapter.poll_once()
+            replies = [payload for path, payload in bridge.posts if path == "/v1/messages"]
+            self.assertEqual(1, len(replies))
+            self.assertEqual(acknowledgement_id("new"), replies[0]["id"])
+
     def test_status_questions_use_published_facts_without_overwriting_goat(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             bridge = FakeBridge()

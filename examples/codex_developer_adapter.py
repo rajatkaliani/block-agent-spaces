@@ -477,6 +477,13 @@ class CodexDeveloperAdapter:
         self.bridge, self.store, self.runner, self.execute = bridge, store, runner, execute
         self.state = store.load()
 
+    def ignore_existing_messages(self) -> None:
+        """Baseline message IDs before polling; messages arriving afterward remain eligible."""
+        for message in self.bridge.messages():
+            if message.get("from") == "minecraft-player" and isinstance(message.get("id"), str) and message["id"]:
+                self.state.mark_handled(message["id"])
+        self.store.save(self.state)
+
     def _publish(self, request: TicketRequest, phase: str, detail: str, evidence: JobResult | None = None) -> None:
         state = "BLOCKED" if phase == "blocked" else "COMPLETE" if phase == "awaiting_review" else "WORKING"
         review = "awaiting_review" if phase == "awaiting_review" else "not_requested"
@@ -673,6 +680,20 @@ class FakeBridge:
 
 
 class CodexDeveloperAdapterTest(unittest.TestCase):
+    def test_fresh_runtime_ignores_stale_tickets_but_handles_new_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = FakeBridge()
+            bridge.feed = {"events": [{"type": "message.created"}], "nextCursor": 2}
+            bridge.message_list = [{"id": "old-ticket", "from": "minecraft-player", "to": "goat", "body": "codex: ticket-old | Do old work"}]
+            adapter = CodexDeveloperAdapter(bridge, StateStore(Path(directory) / "state.json"), None, execute=False)
+            adapter.ignore_existing_messages()
+            bridge.message_list.append({"id": "new-status", "from": "minecraft-player", "to": "goat", "body": "status"})
+            adapter.poll_once()
+            self.assertFalse(any(path == "/v1/tasks" for path, _ in bridge.posts))
+            replies = [payload for path, payload in bridge.posts if path == "/v1/messages"]
+            self.assertEqual(1, len(replies))
+            self.assertIn("Reported bridge status", replies[0]["body"])
+
     def test_developer_notebook_reports_status_but_does_not_invent_work(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             bridge = FakeBridge()
@@ -895,9 +916,12 @@ def run(arguments: argparse.Namespace) -> None:
     mode = validate_bridge(bridge.health(), bool(token))
     execute = execution_enabled()
     state_file = Path(arguments.state_file).expanduser() if arguments.state_file else default_state_file()
+    fresh_state = not state_file.exists()
     worktree_root = Path(arguments.worktree_root).expanduser() if arguments.worktree_root else default_worktree_root()
     runner = CodexJobRunner(Path(arguments.repo), worktree_root, arguments.timeout) if execute else None
     adapter = CodexDeveloperAdapter(bridge, StateStore(state_file), runner, execute)
+    if fresh_state:
+        adapter.ignore_existing_messages()
     print(f"Connected to Block Agent Spaces bridge in {mode.replace('_', ' ')} mode.")
     print("Codex runtime is in EXECUTE mode." if execute else "Codex runtime is in DRY-RUN mode; no worktree or Codex job can start.")
     print("Send Goat a status question or request a ticket in its notebook. Press Ctrl-C to stop.")
