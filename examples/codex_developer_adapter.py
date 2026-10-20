@@ -596,6 +596,34 @@ class FakeBridge:
 
 
 class CodexDeveloperAdapterTest(unittest.TestCase):
+    def test_runner_hands_off_a_validated_isolated_ticket_without_model_usage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            repository = root / "repository"
+            repository.mkdir()
+            subprocess.run(["git", "init", "-q", str(repository)], check=True, capture_output=True)
+            (repository / "app.py").write_text("print('base')\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repository, check=True, capture_output=True)
+            subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@local.invalid", "commit", "-qm", "test: base"],
+                           cwd=repository, check=True, capture_output=True)
+            base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repository, check=True, capture_output=True, text=True).stdout.strip()
+
+            def simulated_command(command: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess[str]:
+                if command[:2] == ["/fake/codex", "exec"]:
+                    (cwd / "app.py").write_text("print('ticket')\n", encoding="utf-8")
+                    return subprocess.CompletedProcess(command, 0, stdout="simulated Codex edit")
+                return run_command(command, cwd, timeout)
+
+            runner = CodexJobRunner(repository, root / "worktrees", 10, simulated_command)
+            with patch("shutil.which", return_value="/fake/codex"), patch.dict(os.environ, {TEST_COMMAND_ENVIRONMENT: "git diff --check"}):
+                result = runner.run(TicketRequest("message-1", "ticket-1", "Change output"))
+            self.assertEqual(base, result.base_revision)
+            self.assertNotEqual(base, result.head_revision)
+            workspace = runner.workspace_for("ticket-1")
+            self.assertEqual("", run_command(["git", "status", "--porcelain=v1"], workspace, 10).stdout.strip())
+            self.assertEqual("print('base')\n", (repository / "app.py").read_text(encoding="utf-8"))
+            self.assertEqual("print('ticket')\n", (workspace / "app.py").read_text(encoding="utf-8"))
+
     def test_ticket_commit_is_isolated_and_rejects_secret_like_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory).resolve()
