@@ -41,6 +41,7 @@ import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
+from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -244,6 +245,12 @@ class TicketRequest:
     prompt: str
 
 
+@dataclass(frozen=True)
+class JobResult:
+    base_revision: str
+    head_revision: str
+
+
 def parse_request(message: dict[str, Any]) -> TicketRequest | None:
     """Accept only explicit player-to-Goat commands; ordinary chat is untouched."""
     if message.get("from") != "minecraft-player" or str(message.get("to", "")).strip().lower() != GOAT_ID:
@@ -330,18 +337,38 @@ class CodexJobRunner:
             raise FileNotFoundError("codex")
         guarded_prompt = (
             "You are the developer for one isolated ticket workspace. "
-            "Implement only the requested change, run relevant tests, and leave a concise final summary. "
+            "Implement only the requested change, run relevant tests, and create one or more focused conventional commits on this ticket branch. "
+            "Leave the worktree clean and do not commit generated files or secrets. Leave a concise final summary. "
             "Do not merge, push, delete a branch or worktree, alter remotes, or create additional worktrees. "
             "Do not claim review or acceptance.\n\n"
             f"Ticket {prompt}"
         )
         return [
-            codex, "exec", "--sandbox", "workspace-write", "--ask-for-approval", "never",
+            codex, "exec", "--sandbox", "workspace-write", "--config", "approval_policy=never",
             "--output-last-message", str(last_message), guarded_prompt,
         ]
 
-    def run(self, request: TicketRequest) -> None:
+    def _git_revision(self, workspace: Path) -> str:
+        result = self.command(["git", "rev-parse", "HEAD"], workspace, 20)
+        revision = result.stdout.strip()
+        if result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", revision):
+            raise JobError("Git could not report a valid ticket revision")
+        return revision
+
+    def _review_evidence(self, workspace: Path, base_revision: str) -> JobResult:
+        status = self.command(["git", "status", "--porcelain=v1"], workspace, 20)
+        if status.returncode != 0:
+            raise JobError("Git could not verify the ticket workspace after tests")
+        if status.stdout.strip():
+            raise JobError("Ticket worktree has uncommitted changes; commit or clean them before review")
+        head_revision = self._git_revision(workspace)
+        if head_revision == base_revision:
+            raise JobError("Codex finished without a new ticket commit; no review request was created")
+        return JobResult(base_revision, head_revision)
+
+    def run(self, request: TicketRequest) -> JobResult:
         workspace = self._create_worktree(request)
+        base_revision = self._git_revision(workspace)
         artifacts = self.artifacts_for(request.ticket_id)
         artifacts.mkdir(parents=True, exist_ok=True)
         last_message = bounded_child(artifacts, "codex-last-message.txt")
@@ -355,6 +382,7 @@ class CodexJobRunner:
         test_result = self.command(test_command, workspace, self.timeout_seconds)
         if test_result.returncode != 0:
             raise JobError("Configured build/tests failed in the isolated workspace; no review or merge was attempted.")
+        return self._review_evidence(workspace, base_revision)
 
 
 class CodexDeveloperAdapter:
@@ -364,7 +392,7 @@ class CodexDeveloperAdapter:
         self.bridge, self.store, self.runner, self.execute = bridge, store, runner, execute
         self.state = store.load()
 
-    def _publish(self, request: TicketRequest, phase: str, detail: str) -> None:
+    def _publish(self, request: TicketRequest, phase: str, detail: str, evidence: JobResult | None = None) -> None:
         state = "BLOCKED" if phase == "blocked" else "COMPLETE" if phase == "awaiting_review" else "WORKING"
         review = "awaiting_review" if phase == "awaiting_review" else "not_requested"
         workspace = (f"isolated ticket workspace: {request.ticket_id}" if phase == "awaiting_review" else
@@ -383,6 +411,19 @@ class CodexDeveloperAdapter:
             {"id": f"builder-develops-{request.ticket_id}", "sourceId": "agent-codex-builder", "targetId": request.ticket_id, "relationship": "develops"},
         ):
             self.bridge.post("/v1/graph/edges", edge)
+        if evidence is not None:
+            for revision in (evidence.base_revision, evidence.head_revision):
+                self.bridge.post("/v1/graph/nodes", {
+                    "id": f"revision-{revision[:12]}", "label": f"Revision {revision[:12]}", "type": "history",
+                })
+            for kind, revision, relationship in (
+                ("base", evidence.base_revision, "branched_from"),
+                ("head", evidence.head_revision, "proposes"),
+            ):
+                self.bridge.post("/v1/graph/edges", {
+                    "id": f"ticket-{kind}-{request.ticket_id}", "sourceId": request.ticket_id,
+                    "targetId": f"revision-{revision[:12]}", "relationship": relationship,
+                })
         self.bridge.post("/v1/tasks", {
             "id": request.ticket_id, "title": f"Codex ticket {request.ticket_id}",
             "description": detail, "status": phase,
@@ -431,11 +472,13 @@ class CodexDeveloperAdapter:
         try:
             if self.runner is None:
                 raise JobError("no Codex job runner is configured")
-            self.runner.run(request)
+            evidence = self.runner.run(request)
         except (JobError, FileNotFoundError, subprocess.TimeoutExpired, OSError) as error:
             self._publish(request, "blocked", concise_failure(error))
         else:
-            self._publish(request, "awaiting_review", "Codex completed and configured build/tests passed. Review, acceptance, merge, and push have not occurred.")
+            self._publish(request, "awaiting_review",
+                          f"Codex committed {evidence.head_revision[:12]} from {evidence.base_revision[:12]}; configured tests passed. Review, acceptance, merge, and push have not occurred.",
+                          evidence)
         self._finish(request)
 
     def poll_once(self) -> int:
@@ -479,6 +522,14 @@ class FakeBridge:
 
 
 class CodexDeveloperAdapterTest(unittest.TestCase):
+    def test_codex_command_uses_supported_noninteractive_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            runner = CodexJobRunner(Path(directory), Path(directory) / "worktrees", 5)
+            with patch("shutil.which", return_value="/usr/local/bin/codex"):
+                command = runner._codex_command("Add a test", Path(directory) / "last-message.txt")
+            self.assertEqual(command[:6], ["/usr/local/bin/codex", "exec", "--sandbox", "workspace-write", "--config", "approval_policy=never"])
+            self.assertNotIn("--ask-for-approval", command)
+
     def test_request_requires_explicit_syntax_and_address(self) -> None:
         self.assertEqual(parse_request({"id": "m1", "from": "minecraft-player", "to": "goat", "body": "codex: Ticket-1 | Add tests"}).ticket_id, "ticket-1")
         self.assertIsNone(parse_request({"id": "m2", "from": "minecraft-player", "to": "builder", "body": "codex: x | work"}))
@@ -522,8 +573,9 @@ class CodexDeveloperAdapterTest(unittest.TestCase):
 
     def test_success_hands_builder_to_review_and_reports_to_player(self) -> None:
         class SuccessfulRunner:
-            def run(self, request: TicketRequest) -> None:
+            def run(self, request: TicketRequest) -> JobResult:
                 self.request = request
+                return JobResult("a" * 40, "b" * 40)
 
         with tempfile.TemporaryDirectory() as directory:
             bridge = FakeBridge()
@@ -539,6 +591,28 @@ class CodexDeveloperAdapterTest(unittest.TestCase):
             self.assertEqual("REVIEWING", goat["state"])
             self.assertTrue(any(path == "/v1/messages" and payload["from"] == GOAT_ID and "awaiting_review" in payload["body"]
                                 for path, payload in bridge.posts))
+            self.assertTrue(any(path == "/v1/graph/edges" and payload["relationship"] == "proposes"
+                                for path, payload in bridge.posts))
+
+    def test_review_evidence_requires_a_clean_new_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = "a" * 40
+            head = "b" * 40
+            outputs = {"head": base, "status": ""}
+
+            def fake_command(command: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess[str]:
+                value = outputs["status"] if "status" in command else outputs["head"]
+                return subprocess.CompletedProcess(command, 0, stdout=value)
+
+            runner = CodexJobRunner(Path(directory), Path(directory) / "worktrees", 5, fake_command)
+            with self.assertRaisesRegex(JobError, "without a new ticket commit"):
+                runner._review_evidence(Path(directory), base)
+            outputs["head"] = head
+            outputs["status"] = " M src/example.py"
+            with self.assertRaisesRegex(JobError, "uncommitted changes"):
+                runner._review_evidence(Path(directory), base)
+            outputs["status"] = ""
+            self.assertEqual(JobResult(base, head), runner._review_evidence(Path(directory), base))
 
     def test_state_is_private_and_never_contains_token_or_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
