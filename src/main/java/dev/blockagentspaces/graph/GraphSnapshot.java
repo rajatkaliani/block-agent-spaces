@@ -47,8 +47,12 @@ public final class GraphSnapshot {
             .sorted(Comparator.comparing(dev.blockagentspaces.model.GraphEdge::id)).toList();
         var edges = visibleEdges.stream().limit(GraphPayloads.MAX_EDGES)
             .map(e -> new GraphPayloads.Edge(e.sourceId(), e.targetId(), limit(e.relationship(), 64))).toList();
-        return new GraphPayloads.Open(nodes, edges, ids.contains(selected) ? selected : "", limit(state.presentationStatus(), 128),
-            allNodes.size() != nodes.size() || visibleEdges.size() != edges.size());
+        var allAgents = state.agents().stream().filter(a -> a.id().length() <= 128)
+            .sorted(Comparator.comparing((Agent a) -> !a.id().equalsIgnoreCase("goat")).thenComparing(Agent::id)).toList();
+        var agents = allAgents.stream().limit(GraphPayloads.MAX_AGENTS)
+            .map(a -> new GraphPayloads.AgentSummary(a.id(), limit(a.displayName(), 128), a.state().name(), limit(a.taskId(), 128))).toList();
+        return new GraphPayloads.Open(nodes, edges, agents, ids.contains(selected) ? selected : "", limit(state.presentationStatus(), 128),
+            allNodes.size() != nodes.size() || visibleEdges.size() != edges.size() || state.agents().size() != agents.size());
     }
     private static void collectComponent(String seed, Map<String, Set<String>> neighbors, Comparator<String> importance,
                                          Set<String> seen, List<String> visible) {

@@ -7,7 +7,7 @@ Minecraft is the interface, not the source of truth. A local adapter owns agent 
 ## What it visualizes
 
 - **Agent workspace:** named NPCs represent Goat (the lead) and developer or reviewer agents. Their state, ticket, branch, workspace, review status, and acceptance status are available from a click-to-chat notebook.
-- **Knowledge graph:** open a black-canvas visualization from any notebook or click an observatory hologram. Search, pan, zoom, select nodes, inspect their relationships, and open a linked agent notebook. It refreshes while open and renders up to 128 nodes and 256 links from a bounded snapshot.
+- **Knowledge graph:** open a black-canvas visualization from any notebook or click an observatory hologram. Search, pan, zoom, select nodes, follow relationships, and switch to the agent directory to open any published agent’s notebook. It refreshes while open and renders bounded snapshots.
 - **Goat control point:** Goat is the coordination role: it can triage work, delegate tickets, request review, and report acceptance when an external orchestrator confirms it. The physical ticket board shows adapter-reported Ready, Active, Blocked, Review, and Accepted work.
 - **Conversation record:** notebooks clearly separate `You • sent` notes from incoming adapter replies. The lectern is a shared, bounded activity log.
 

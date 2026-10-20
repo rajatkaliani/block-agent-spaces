@@ -2,8 +2,12 @@ package dev.blockagentspaces.graph;
 
 import dev.blockagentspaces.model.GraphEdge;
 import dev.blockagentspaces.model.GraphNode;
+import dev.blockagentspaces.model.Agent;
+import dev.blockagentspaces.model.AgentState;
 import dev.blockagentspaces.network.GraphPayloads;
 import dev.blockagentspaces.service.WorldState;
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
@@ -16,6 +20,8 @@ class GraphSnapshotTest {
         assertEquals("fabric", graph.selected());
         assertEquals("builder", graph.nodes().stream().filter(n -> n.id().equals("fabric")).findFirst().orElseThrow().agentId());
         assertTrue(graph.edges().stream().anyMatch(e -> e.source().equals("project") && e.target().equals("fabric")));
+        assertEquals("goat", graph.agents().getFirst().id());
+        assertEquals(3, graph.agents().size());
         assertFalse(graph.truncated());
     }
 
@@ -45,5 +51,19 @@ class GraphSnapshotTest {
         assertEquals("z-focus", graph.selected());
         assertTrue(graph.nodes().stream().anyMatch(n -> n.id().equals("z-linked")));
         assertTrue(graph.edges().stream().anyMatch(e -> e.source().equals("z-focus") && e.target().equals("z-linked")));
+    }
+
+    @Test void directoryIncludesGoatBeforeWorkersAndHonorsItsPacketBound() {
+        WorldState state = new WorldState();
+        for (int i = 0; i < 130; i++) state.putAgent(new Agent(String.format("worker-%03d", i), "Worker", AgentState.IDLE,
+            "", "", "", "", "", "", "", List.of(), Instant.EPOCH));
+        state.putAgent(new Agent("goat", "Goat", AgentState.WORKING, "triage", "", "", "", "", "", "", List.of(), Instant.EPOCH));
+
+        GraphPayloads.Open graph = GraphSnapshot.from(state, "");
+
+        assertEquals(GraphPayloads.MAX_AGENTS, graph.agents().size());
+        assertEquals("goat", graph.agents().getFirst().id());
+        assertEquals("triage", graph.agents().getFirst().task());
+        assertTrue(graph.truncated());
     }
 }
