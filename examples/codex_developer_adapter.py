@@ -15,7 +15,8 @@ environment values in its process:
     BLOCK_AGENT_SPACES_CODEX_ALLOW_WORKTREE=1
 
 The real path creates one bounded, per-ticket Git worktree and invokes
-``codex exec`` non-interactively.  It never calls ``git merge``, ``git push``,
+``codex exec`` non-interactively. The adapter commits a validated ticket diff
+outside the sandbox, because the sandbox protects Git metadata. It never calls ``git merge``, ``git push``,
 ``git worktree remove``, or any branch deletion command.  A successful job is
 only reported as ``awaiting_review``; review and acceptance remain Goat's
 separate, explicit responsibility.
@@ -346,8 +347,8 @@ class CodexJobRunner:
             raise FileNotFoundError("codex")
         guarded_prompt = (
             "You are the developer for one isolated ticket workspace. "
-            "Implement only the requested change, run relevant tests, and create one or more focused conventional commits on this ticket branch. "
-            "Leave the worktree clean and do not commit generated files or secrets. Leave a concise final summary. "
+            "Implement only the requested change and run relevant tests. The trusted local adapter will make the ticket commit after validation. "
+            "Do not create commits, add secrets or generated files, or touch Git metadata. Leave a concise final summary. "
             "Do not merge, push, delete a branch or worktree, alter remotes, or create additional worktrees. "
             "Do not claim review or acceptance.\n\n"
             f"Ticket {prompt}"
@@ -363,6 +364,48 @@ class CodexJobRunner:
         if result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", revision):
             raise JobError("Git could not report a valid ticket revision")
         return revision
+
+    def _changed_paths(self, workspace: Path) -> list[str]:
+        paths: set[str] = set()
+        for command in (
+            ["git", "diff", "--name-only", "-z"],
+            ["git", "diff", "--cached", "--name-only", "-z"],
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        ):
+            result = self.command(command, workspace, 20)
+            if result.returncode != 0:
+                raise JobError("Git could not enumerate ticket changes for review")
+            paths.update(path for path in result.stdout.split("\0") if path)
+        if not paths:
+            raise JobError("Codex finished without ticket changes; no review request was created")
+        if len(paths) > 100:
+            raise JobError("Ticket changed more than 100 files; inspect the worktree before committing")
+        for path in paths:
+            candidate = workspace / path
+            name = candidate.name.lower()
+            if (candidate.is_symlink() or not candidate.resolve().is_relative_to(workspace)
+                    or any(part in {".git", ".codex", "build", "dist", "target", "__pycache__"} for part in Path(path).parts)
+                    or name.startswith(".env") or name in {".npmrc", ".pypirc", "id_rsa", "id_ed25519"}
+                    or name.endswith((".pem", ".p12", ".pfx", ".log", ".class", ".jar", ".pyc", ".zip"))):
+                raise JobError("Ticket includes a protected or unsafe path; inspect the worktree before committing")
+            if candidate.is_file() and candidate.stat().st_size > 1_000_000:
+                raise JobError("Ticket includes a file larger than 1 MB; inspect the worktree before committing")
+        return sorted(paths)
+
+    def _commit_ticket_changes(self, workspace: Path, request: TicketRequest) -> None:
+        paths = self._changed_paths(workspace)
+        added = self.command(["git", "add", "--", *paths], workspace, 20)
+        if added.returncode != 0:
+            raise JobError("Git could not stage ticket changes; no review request was created")
+        whitespace = self.command(["git", "diff", "--cached", "--check"], workspace, 20)
+        if whitespace.returncode != 0:
+            raise JobError("Ticket has staged whitespace errors; no commit or review request was created")
+        committed = self.command([
+            "git", "-c", "user.name=Block Agent Spaces", "-c", "user.email=block-agent-spaces@local.invalid",
+            "commit", "-m", f"feat: implement {request.ticket_id}",
+        ], workspace, self.timeout_seconds)
+        if committed.returncode != 0:
+            raise JobError("Git could not commit the validated ticket changes; no review request was created")
 
     def _review_evidence(self, workspace: Path, base_revision: str) -> JobResult:
         status = self.command(["git", "status", "--porcelain=v1"], workspace, 20)
@@ -391,6 +434,7 @@ class CodexJobRunner:
         test_result = self.command(test_command, workspace, self.timeout_seconds)
         if test_result.returncode != 0:
             raise JobError("Configured build/tests failed in the isolated workspace; no review or merge was attempted.")
+        self._commit_ticket_changes(workspace, request)
         return self._review_evidence(workspace, base_revision)
 
 
@@ -497,7 +541,7 @@ class CodexDeveloperAdapter:
             self._publish(request, "blocked", concise_failure(error))
         else:
             self._publish(request, "awaiting_review",
-                          f"Codex committed {evidence.head_revision[:12]} from {evidence.base_revision[:12]}; configured tests passed. Review, acceptance, merge, and push have not occurred.",
+                          f"Adapter committed ticket revision {evidence.head_revision[:12]} from {evidence.base_revision[:12]}; configured tests passed. Review, acceptance, merge, and push have not occurred.",
                           evidence)
         self._finish(request)
 
@@ -552,6 +596,28 @@ class FakeBridge:
 
 
 class CodexDeveloperAdapterTest(unittest.TestCase):
+    def test_ticket_commit_is_isolated_and_rejects_secret_like_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory).resolve()
+            subprocess.run(["git", "init", "-q"], cwd=workspace, check=True, capture_output=True)
+            source = workspace / "app.py"
+            source.write_text("print('base')\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=workspace, check=True, capture_output=True)
+            subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@local.invalid", "commit", "-qm", "test: base"],
+                           cwd=workspace, check=True, capture_output=True)
+            runner = CodexJobRunner(workspace, workspace / "worktrees", 5)
+            base = runner._git_revision(workspace)
+            source.write_text("print('changed')\n", encoding="utf-8")
+            request = TicketRequest("message-1", "ticket-1", "Change output")
+            runner._commit_ticket_changes(workspace, request)
+            result = runner._review_evidence(workspace, base)
+            self.assertNotEqual(base, result.head_revision)
+            self.assertEqual("feat: implement ticket-1", subprocess.run(
+                ["git", "log", "-1", "--format=%s"], cwd=workspace, check=True, capture_output=True, text=True).stdout.strip())
+            (workspace / ".env.local").write_text("SECRET=fixture\n", encoding="utf-8")
+            with self.assertRaisesRegex(JobError, "unsafe path"):
+                runner._commit_ticket_changes(workspace, TicketRequest("message-2", "ticket-2", "More work"))
+
     def test_single_runtime_answers_goat_status_without_launching_job(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             bridge = FakeBridge()

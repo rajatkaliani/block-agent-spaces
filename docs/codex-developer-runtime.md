@@ -24,9 +24,9 @@ for review, or a place to put credentials.
 
 3. Publishes `assigned`, then one truthful terminal state:
 
-   - `awaiting_review` only after Codex exits successfully, creates a new
-     ticket commit, leaves a clean worktree, **and** the configured local
-     build/test command succeeds.
+   - `awaiting_review` only after Codex exits successfully, the configured
+     build/test command succeeds, and the adapter creates a new ticket commit
+     with a clean worktree.
    - `blocked` for dry runs, missing Codex, failed authentication/CLI jobs,
      Git/worktree trouble, failed build/tests, a timeout, or an interrupted
      recorded launch.
@@ -72,8 +72,11 @@ python3 examples/codex_developer_adapter.py \
 The adapter creates at most one new, isolated worktree at a bounded path under
 the configured worktree root for each accepted ticket ID. It invokes
 `codex exec` with a workspace-write sandbox and `approval_policy=never`,
-then runs `./gradlew test` by default. The adapter checks that the ticket branch
-has a new commit and no uncommitted files before reporting review readiness;
+then runs `./gradlew test` by default. Because the sandbox protects Git
+metadata, the adapter—not Codex—stages bounded, non-secret-looking changed
+files and creates a local conventional ticket commit after tests pass. It
+refuses large, generated, secret-like, symlink, or escaping paths. It checks
+that the branch has a new commit and no uncommitted files before reporting review readiness;
 Goat’s graph links the ticket to its base and proposed head revisions. Set
 `BLOCK_AGENT_SPACES_CODEX_TEST_COMMAND` to a simple space-separated local test
 command when this repository uses something else. No shell is used to execute
