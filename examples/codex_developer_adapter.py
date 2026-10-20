@@ -45,6 +45,8 @@ from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from goat_bridge_adapter import acknowledgement_id, ordinary_goat_reply, player_message_to_goat
+
 
 DEFAULT_BRIDGE_URL = "http://127.0.0.1:8787"
 TOKEN_ENVIRONMENT = "BLOCK_AGENT_SPACES_BRIDGE_TOKEN"
@@ -176,6 +178,7 @@ class Bridge(Protocol):
     def health(self) -> dict[str, Any]: ...
     def events_after(self, cursor: int) -> dict[str, Any]: ...
     def messages(self) -> list[dict[str, Any]]: ...
+    def snapshot(self) -> dict[str, Any]: ...
     def post(self, path: str, payload: dict[str, Any]) -> Any: ...
 
 
@@ -213,6 +216,12 @@ class BridgeClient:
         result = self._request("/v1/messages")
         if not isinstance(result, list) or any(not isinstance(message, dict) for message in result):
             raise AdapterError("bridge returned an invalid message list")
+        return result
+
+    def snapshot(self) -> dict[str, Any]:
+        result = require_object(self._request("/v1/snapshot"), "snapshot")
+        if any(not isinstance(result.get(key), list) for key in ("agents", "tasks")):
+            raise AdapterError("bridge returned an invalid agent/task snapshot")
         return result
 
     def post(self, path: str, payload: dict[str, Any]) -> Any:
@@ -454,6 +463,17 @@ class CodexDeveloperAdapter:
         self.state.mark_handled(request.message_id)
         self.store.save(self.state)
 
+    def _reply_without_job(self, message: dict[str, Any], published_ids: set[str]) -> None:
+        message_id = message["id"]
+        reply_id = acknowledgement_id(message_id)
+        if reply_id not in published_ids:
+            self.bridge.post("/v1/messages", {
+                "id": reply_id, "from": GOAT_ID, "to": "minecraft-player",
+                "body": ordinary_goat_reply(self.bridge, str(message.get("body", ""))),
+            })
+        self.state.mark_handled(message_id)
+        self.store.save(self.state)
+
     def _run_request(self, request: TicketRequest) -> None:
         # A durable launch marker is written before a tool call. A restart
         # cannot secretly launch Codex twice; it visibly blocks for inspection.
@@ -487,10 +507,16 @@ class CodexDeveloperAdapter:
         if not isinstance(events, list) or not isinstance(next_cursor, int) or next_cursor < self.state.cursor:
             raise AdapterError("bridge returned an invalid ordered event feed")
         if any(isinstance(event, dict) and event.get("type") == "message.created" for event in events):
-            for message in self.bridge.messages():
+            messages = self.bridge.messages()
+            published_ids = {message.get("id") for message in messages if isinstance(message.get("id"), str)}
+            for message in messages:
+                if not player_message_to_goat(message) or self.state.handled(message["id"]):
+                    continue
                 request = parse_request(message)
-                if request and not self.state.handled(request.message_id):
+                if request:
                     self._run_request(request)
+                else:
+                    self._reply_without_job(message, published_ids)
         self.state.cursor = next_cursor
         self.store.save(self.state)
         self.bridge.post("/v1/events/ack", {"consumer": CONSUMER, "cursor": next_cursor})
@@ -503,6 +529,7 @@ class FakeBridge:
     def __init__(self):
         self.feed: dict[str, Any] = {"events": [], "nextCursor": 0}
         self.message_list: list[dict[str, Any]] = []
+        self.snapshot_data: dict[str, Any] = {"agents": [], "tasks": []}
         self.posts: list[tuple[str, dict[str, Any]]] = []
 
     def health(self) -> dict[str, Any]:
@@ -514,6 +541,9 @@ class FakeBridge:
     def messages(self) -> list[dict[str, Any]]:
         return list(self.message_list)
 
+    def snapshot(self) -> dict[str, Any]:
+        return self.snapshot_data
+
     def post(self, path: str, payload: dict[str, Any]) -> Any:
         self.posts.append((path, dict(payload)))
         if path == "/v1/messages":
@@ -522,6 +552,21 @@ class FakeBridge:
 
 
 class CodexDeveloperAdapterTest(unittest.TestCase):
+    def test_single_runtime_answers_goat_status_without_launching_job(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = FakeBridge()
+            bridge.feed = {"events": [{"type": "message.created"}], "nextCursor": 1}
+            bridge.message_list = [{"id": "status-1", "from": "minecraft-player", "to": "goat", "body": "status ticket-7"}]
+            bridge.snapshot_data = {"agents": [], "tasks": [{"id": "ticket-7", "title": "Improve graph", "status": "awaiting_review"}]}
+            adapter = CodexDeveloperAdapter(bridge, StateStore(Path(directory) / "state.json"), None, execute=False)
+            adapter.poll_once()
+            replies = [payload for path, payload in bridge.posts if path == "/v1/messages"]
+            self.assertEqual(1, len(replies))
+            self.assertIn("awaiting_review", replies[0]["body"])
+            self.assertFalse(any(path in {"/v1/tasks", "/v1/agents"} for path, _ in bridge.posts))
+            adapter.poll_once()
+            self.assertEqual(1, len([payload for path, payload in bridge.posts if path == "/v1/messages"]))
+
     def test_codex_command_uses_supported_noninteractive_policy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             runner = CodexJobRunner(Path(directory), Path(directory) / "worktrees", 5)
@@ -650,7 +695,7 @@ def run(arguments: argparse.Namespace) -> None:
     adapter = CodexDeveloperAdapter(bridge, StateStore(state_file), runner, execute)
     print(f"Connected to Block Agent Spaces bridge in {mode.replace('_', ' ')} mode.")
     print("Codex runtime is in EXECUTE mode." if execute else "Codex runtime is in DRY-RUN mode; no worktree or Codex job can start.")
-    print("Send Goat: codex: ticket-id | bounded task description. Press Ctrl-C to stop.")
+    print("Send Goat a status question or request a ticket in its notebook. Press Ctrl-C to stop.")
     while True:
         count = adapter.poll_once()
         if arguments.once:

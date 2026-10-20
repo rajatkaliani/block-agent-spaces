@@ -295,6 +295,13 @@ def status_reply(snapshot: dict[str, Any], subject: str) -> str:
     return f"No published agent or ticket matches {subject[:80]}. Open the graph's Agents tab or ask 'status' for the current roster."
 
 
+def ordinary_goat_reply(bridge: Bridge, body: str) -> str:
+    subject = status_subject(body)
+    if subject is not None:
+        return status_reply(bridge.snapshot(), subject)
+    return "Goat recorded your message for the configured external orchestrator. This example does not run agents, create tickets, or perform Git work. Ask 'status' for a no-token state summary."
+
+
 class GoatBridgeAdapter:
     """Consumes player-to-Goat messages and emits conservative, visible confirmations."""
 
@@ -348,12 +355,10 @@ class GoatBridgeAdapter:
                 "graphFocus": [],
             })
         if reply_id not in published_ids:
-            if subject is not None:
-                reply = status_reply(self.bridge.snapshot(), subject)
-            elif ticket_request:
+            if ticket_request:
                 reply = "Goat received the ticket request. A running Codex developer adapter can process it; check the ticket board for progress."
             else:
-                reply = "Goat recorded your message for the configured external orchestrator. This example does not run agents, create tickets, or perform Git work. Ask 'status' for a no-token state summary."
+                reply = ordinary_goat_reply(self.bridge, body)
             self.bridge.post("/v1/messages", {
                 "id": reply_id,
                 "from": GOAT_ID,

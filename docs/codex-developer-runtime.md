@@ -2,7 +2,9 @@
 
 This optional local adapter lets Goat dispatch a clearly requested development
 job from Block Agent Spaces to the locally installed Codex CLI. It is a small,
-standard-library example rather than a background agent swarm.
+standard-library example rather than a background agent swarm. One process also
+answers Goat status questions from published bridge state, so the separate
+Goat bridge adapter is not needed for this workflow.
 
 Goat remains deterministic: it receives the request, visualizes the truthful
 ticket state, and waits for a separate review decision. Minecraft is a local
@@ -80,6 +82,10 @@ that value.
 Actual Codex usage begins only after both opt-ins are set and an explicit
 Minecraft request arrives. Routine status changes, bridge polling, notebook
 views, and the graph consume no Codex usage.
+
+You can ask Goat `status`, `what is Builder doing?`, or `status ticket-123` in
+the notebook. These are read-only summaries of reported state; they do not
+verify code or run Codex.
 
 ## Expected Minecraft flow
 
