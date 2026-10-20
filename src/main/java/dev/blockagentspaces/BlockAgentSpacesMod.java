@@ -7,6 +7,8 @@ import dev.blockagentspaces.service.AgentCommunicationService;
 import dev.blockagentspaces.service.WorkspaceAutoRefresher;
 import dev.blockagentspaces.service.RuntimeStatePersistence;
 import dev.blockagentspaces.network.ConversationPayloads;
+import dev.blockagentspaces.network.GraphPayloads;
+import dev.blockagentspaces.graph.GraphSnapshot;
 import dev.blockagentspaces.world.WorkspaceBuilder;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -28,6 +30,13 @@ public final class BlockAgentSpacesMod implements ModInitializer {
     @Override
     public void onInitialize() {
         PayloadTypeRegistry.clientboundPlay().register(ConversationPayloads.Open.TYPE, ConversationPayloads.Open.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(ConversationPayloads.Update.TYPE, ConversationPayloads.Update.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(ConversationPayloads.SendResult.TYPE, ConversationPayloads.SendResult.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(GraphPayloads.Open.TYPE, GraphPayloads.Open.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(GraphPayloads.Update.TYPE, GraphPayloads.Update.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(GraphPayloads.Request.TYPE, GraphPayloads.Request.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(GraphPayloads.Refresh.TYPE, GraphPayloads.Refresh.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(GraphPayloads.OpenAgent.TYPE, GraphPayloads.OpenAgent.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ConversationPayloads.Send.TYPE, ConversationPayloads.Send.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ConversationPayloads.Refresh.TYPE, ConversationPayloads.Refresh.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ConversationPayloads.ClearFocus.TYPE, ConversationPayloads.ClearFocus.CODEC);
@@ -36,14 +45,25 @@ public final class BlockAgentSpacesMod implements ModInitializer {
             // presentation only; leaking them into the protocol made notebook
             // messages invisible to adapters expecting minecraft-player.
             AgentCommunicationService.SendResult result = new AgentCommunicationService(worldState).sendFromMinecraft(payload.agentId(), payload.body());
-            if (!result.sent()) context.player().sendSystemMessage(net.minecraft.network.chat.Component.literal(result.error()));
+            if (result.sent()) ServerPlayNetworking.send(context.player(), new ConversationPayloads.Update(AgentInteractionHandler.notebookSnapshot(new AgentCommunicationService(worldState), result.agent())));
+            ServerPlayNetworking.send(context.player(), new ConversationPayloads.SendResult(payload.agentId(), result.sent(), result.sent()
+                ? "Saved to the local bridge outbox • waiting for an adapter reply."
+                : result.error()));
         });
         ServerPlayNetworking.registerGlobalReceiver(ConversationPayloads.Refresh.TYPE, (payload, context) -> {
             AgentCommunicationService communication = new AgentCommunicationService(worldState);
-            communication.findAgent(payload.agentId()).ifPresent(agent -> AgentInteractionHandler.openNotebook(context.player(), communication, agent));
+            communication.findAgent(payload.agentId()).ifPresent(agent -> ServerPlayNetworking.send(context.player(), new ConversationPayloads.Update(AgentInteractionHandler.notebookSnapshot(communication, agent))));
         });
         ServerPlayNetworking.registerGlobalReceiver(ConversationPayloads.ClearFocus.TYPE, (payload, context) -> {
             if (workspaceBuilder.clearInstallationFocus(context.player())) autoRefresher.requestReconciliation();
+        });
+        ServerPlayNetworking.registerGlobalReceiver(GraphPayloads.Request.TYPE, (payload, context) ->
+            ServerPlayNetworking.send(context.player(), GraphSnapshot.from(worldState, payload.selected())));
+        ServerPlayNetworking.registerGlobalReceiver(GraphPayloads.Refresh.TYPE, (payload, context) ->
+            ServerPlayNetworking.send(context.player(), new GraphPayloads.Update(GraphSnapshot.from(worldState, payload.selected()))));
+        ServerPlayNetworking.registerGlobalReceiver(GraphPayloads.OpenAgent.TYPE, (payload, context) -> {
+            AgentCommunicationService communication = new AgentCommunicationService(worldState);
+            communication.findAgent(payload.agentId()).ifPresent(agent -> AgentInteractionHandler.openNotebook(context.player(), communication, agent));
         });
         BlockAgentsCommands.register(worldState, bridge);
         AgentInteractionHandler.register(worldState, workspaceBuilder, autoRefresher);

@@ -1,6 +1,7 @@
 package dev.blockagentspaces.client;
 
 import dev.blockagentspaces.network.ConversationPayloads;
+import dev.blockagentspaces.network.GraphPayloads;
 import java.util.ArrayList;
 import java.util.List;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -19,18 +20,22 @@ import net.minecraft.network.chat.Component;
  * notebook never turns a player's own outbox entry into a fake agent response.</p>
  */
 final class ConversationScreen extends Screen {
-    private static final int MAX_HISTORY = 6;
+    private static ConversationScreen active;
     private static final int MAX_MESSAGE_LENGTH = 400;
     // GLFW key values are part of Minecraft's input contract, but GLFW is not exposed to mod compilation.
     private static final int ENTER_KEY = 257;
     private static final int KEYPAD_ENTER_KEY = 335;
-    private final ConversationPayloads.Open context;
+    private ConversationPayloads.Open context;
     private final List<NotebookMessage> messages;
     private EditBox draft;
     private Button sendButton;
     private Button clearFocusButton;
     private Button refreshButton;
     private String deliveryStatus;
+    private boolean sending;
+    private int refreshTicks;
+    private int transcriptScroll;
+    private int maxTranscriptScroll;
 
     ConversationScreen(ConversationPayloads.Open context) {
         super(Component.literal(safe(context.name()) + " notebook"));
@@ -41,6 +46,7 @@ final class ConversationScreen extends Screen {
 
     @Override
     protected void init() {
+        String existingDraft = draft == null ? "" : draft.getValue();
         int panelWidth = panelWidth();
         int panelX = (width - panelWidth) / 2;
         int composeY = Math.max(138, height - 48);
@@ -52,17 +58,19 @@ final class ConversationScreen extends Screen {
         draft = new EditBox(font, panelX + 8, composeY, draftWidth, 20, Component.literal("Message " + safe(context.name())));
         draft.setMaxLength(MAX_MESSAGE_LENGTH);
         draft.setHint(Component.literal("Write a note to " + safe(context.name()) + "…"));
-        draft.setResponder(value -> sendButton.active = !value.trim().isEmpty());
+        draft.setValue(existingDraft);
+        draft.setEditable(!sending);
+        draft.setResponder(value -> { if (sendButton != null) sendButton.active = !sending && !value.trim().isEmpty(); });
         addRenderableWidget(draft);
 
         sendButton = addRenderableWidget(Button.builder(Component.literal("Send"), button -> send())
                 .bounds(panelX + panelWidth - sendWidth - 8, composeY, sendWidth, 20)
                 .build());
-        sendButton.active = false;
+        sendButton.active = !sending && !existingDraft.trim().isEmpty();
         refreshButton = addRenderableWidget(Button.builder(Component.literal("Refresh"), button -> refreshConversation())
                 .bounds(panelX + panelWidth - sendWidth - focusWidth - refreshWidth - 16, composeY, refreshWidth, 20)
                 .build());
-        clearFocusButton = addRenderableWidget(Button.builder(Component.literal("Full graph"), button -> clearObservatoryFocus())
+        clearFocusButton = addRenderableWidget(Button.builder(Component.literal("Graph"), button -> ClientPlayNetworking.send(new GraphPayloads.Request("")))
                 .bounds(panelX + panelWidth - sendWidth - focusWidth - 12, composeY, focusWidth, 20)
                 .build());
         clearFocusButton.active = true;
@@ -128,17 +136,59 @@ final class ConversationScreen extends Screen {
     }
 
     @Override
+    public boolean mouseScrolled(double x, double y, double horizontal, double vertical) {
+        int panelX = (width - panelWidth()) / 2;
+        int composeY = Math.max(138, height - 48);
+        if (x >= panelX && x < panelX + panelWidth() && y >= 134 && y < composeY - 8) {
+            transcriptScroll = Math.max(0, Math.min(maxTranscriptScroll, transcriptScroll + (int) Math.signum(vertical) * 30));
+            return true;
+        }
+        return super.mouseScrolled(x, y, horizontal, vertical);
+    }
+
+    @Override
     public boolean isPauseScreen() {
         return false;
     }
 
+    @Override public void added() { super.added(); active = this; }
+    @Override public void removed() { if (active == this) active = null; super.removed(); }
+    static ConversationScreen active() { return active; }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (++refreshTicks >= 40) {
+            refreshTicks = 0;
+            ClientPlayNetworking.send(new ConversationPayloads.Refresh(context.agentId()));
+        }
+    }
+
+    boolean displays(String agentId) { return context.agentId().equals(agentId); }
+
+    void update(ConversationPayloads.Open update) {
+        context = update;
+        messages.clear();
+        messages.addAll(conversationFor(update));
+        if (!sending) deliveryStatus = safe(update.deliveryStatus());
+    }
+
+    void sent(ConversationPayloads.SendResult result) {
+        if (!sending) return;
+        sending = false;
+        draft.setEditable(true);
+        if (result.accepted()) draft.setValue("");
+        sendButton.active = !draft.getValue().trim().isEmpty();
+        deliveryStatus = safe(result.status());
+    }
+
     private void send() {
         String body = safe(draft.getValue()).trim();
-        if (body.isEmpty()) return;
-        messages.add(new NotebookMessage("You", body, true));
-        while (messages.size() > MAX_HISTORY) messages.removeFirst();
-        deliveryStatus = "Sent to the local bridge outbox • waiting for " + safe(context.name()) + "'s adapter reply.";
-        draft.setValue("");
+        if (body.isEmpty() || sending) return;
+        sending = true;
+        draft.setEditable(false);
+        sendButton.active = false;
+        deliveryStatus = "Sending to the local bridge…";
         ClientPlayNetworking.send(new ConversationPayloads.Send(context.agentId(), body));
     }
 
@@ -147,33 +197,33 @@ final class ConversationScreen extends Screen {
         ClientPlayNetworking.send(new ConversationPayloads.Refresh(context.agentId()));
     }
 
-    private void clearObservatoryFocus() {
-        ClientPlayNetworking.send(new ConversationPayloads.ClearFocus());
-        onClose();
-    }
-
     private void drawMessages(GuiGraphicsExtractor graphics, int x, int y, int availableWidth, int availableHeight) {
-        int maxRows = Math.max(1, Math.min(MAX_HISTORY, availableHeight / 25));
-        List<NotebookMessage> visible = messages.size() <= maxRows
-                ? messages
-                : messages.subList(messages.size() - maxRows, messages.size());
-        if (visible.isEmpty()) {
+        if (messages.isEmpty()) {
             graphics.text(font, Component.literal("No messages yet. Send a concise update or question."), x, y, 0xFF8C98A5, false);
             return;
         }
-        int cursorY = y;
-        for (NotebookMessage message : visible) {
-            int cardWidth = Math.max(92, (availableWidth * 3) / 4);
+        int cardWidth = Math.max(92, (availableWidth * 3) / 4);
+        int totalHeight = 0;
+        for (NotebookMessage message : messages) totalHeight += 16 + 10 * font.split(Component.literal(message.body), cardWidth - 8).size();
+        maxTranscriptScroll = Math.max(0, totalHeight - Math.max(1, availableHeight));
+        transcriptScroll = Math.min(transcriptScroll, maxTranscriptScroll);
+        int cursorY = y - maxTranscriptScroll + transcriptScroll;
+        graphics.enableScissor(x - 2, y - 3, x + availableWidth + 2, y + Math.max(1, availableHeight));
+        for (NotebookMessage message : messages) {
+            var lines = font.split(Component.literal(message.body), cardWidth - 8);
+            int cardHeight = 12 + 10 * lines.size();
             int cardX = message.outgoing ? x + availableWidth - cardWidth : x;
             int fill = message.outgoing ? 0xCC173D35 : 0xCC28313D;
             int border = message.outgoing ? 0xFF4FAF86 : 0xFF617791;
-            graphics.fill(cardX, cursorY - 2, cardX + cardWidth, cursorY + 20, fill);
-            graphics.outline(cardX, cursorY - 2, cardX + cardWidth, cursorY + 20, border);
+            graphics.fill(cardX, cursorY - 2, cardX + cardWidth, cursorY + cardHeight, fill);
+            graphics.outline(cardX, cursorY - 2, cardX + cardWidth, cursorY + cardHeight, border);
             String label = message.outgoing ? "You • sent" : message.sender + " • incoming";
             graphics.text(font, Component.literal(clipped(label, cardWidth - 8)), cardX + 4, cursorY, message.outgoing ? 0xFF9BDAAE : 0xFFE0E7EF, false);
-            graphics.text(font, Component.literal(clipped(message.body, cardWidth - 8)), cardX + 4, cursorY + 10, message.outgoing ? 0xFFD3F1DF : 0xFFE0E7EF, false);
-            cursorY += 25;
+            int lineY = cursorY + 10;
+            for (var line : lines) { graphics.text(font, line, cardX + 4, lineY, message.outgoing ? 0xFFD3F1DF : 0xFFE0E7EF, false); lineY += 10; }
+            cursorY += cardHeight + 4;
         }
+        graphics.disableScissor();
     }
 
     private int panelWidth() {

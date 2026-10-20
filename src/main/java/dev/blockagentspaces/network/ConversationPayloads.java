@@ -38,6 +38,21 @@ public final class ConversationPayloads {
         public static final StreamCodec<RegistryFriendlyByteBuf, Send> CODEC = StreamCodec.of((buf, p) -> { buf.writeUtf(p.agentId, 64); buf.writeUtf(p.body, 400); }, buf -> new Send(buf.readUtf(64), buf.readUtf(400)));
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
+    /** Refreshes an already open notebook without reopening one the player closed. */
+    public record Update(Open snapshot) implements CustomPacketPayload {
+        public static final Type<Update> TYPE = new Type<>(Identifier.fromNamespaceAndPath(BlockAgentSpacesMod.MOD_ID, "update_conversation"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, Update> CODEC = StreamCodec.of(
+            (buf, p) -> Open.CODEC.encode(buf, p.snapshot), buf -> new Update(Open.CODEC.decode(buf)));
+        @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
+    /** Acknowledges whether the server actually accepted the note; not an agent response. */
+    public record SendResult(String agentId, boolean accepted, String status) implements CustomPacketPayload {
+        public static final Type<SendResult> TYPE = new Type<>(Identifier.fromNamespaceAndPath(BlockAgentSpacesMod.MOD_ID, "conversation_send_result"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, SendResult> CODEC = StreamCodec.of(
+            (buf, p) -> { buf.writeUtf(p.agentId, 64); buf.writeBoolean(p.accepted); buf.writeUtf(p.status, 256); },
+            buf -> new SendResult(buf.readUtf(64), buf.readBoolean(), buf.readUtf(256)));
+        @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
     /** Requests a fresh server-authoritative transcript after an adapter publishes a reply. */
     public record Refresh(String agentId) implements CustomPacketPayload {
         public static final Type<Refresh> TYPE = new Type<>(Identifier.fromNamespaceAndPath(BlockAgentSpacesMod.MOD_ID, "refresh_conversation"));
