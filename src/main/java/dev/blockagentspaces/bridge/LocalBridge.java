@@ -52,6 +52,7 @@ public final class LocalBridge {
     public void stop() { if (server != null) { server.stop(0); server = null; } }
     public boolean isRunning() { return server != null; }
     public int port() { return server == null ? requestedPort : server.getAddress().getPort(); }
+    public String mutationMode() { return access.modeLabel(); }
 
     private void health(HttpExchange x) throws IOException {
         requireMethod(x, "GET");

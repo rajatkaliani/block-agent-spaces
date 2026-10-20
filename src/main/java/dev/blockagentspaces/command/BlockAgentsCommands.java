@@ -13,6 +13,8 @@ import net.minecraft.server.level.ServerPlayer;
 import dev.blockagentspaces.world.WorkspaceBuilder;
 import dev.blockagentspaces.service.AgentCommunicationService;
 import dev.blockagentspaces.ui.AgentDashboard;
+import dev.blockagentspaces.graph.GraphSnapshot;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 
 /** Small command surface for onboarding and server-side maintenance; agents are normally clicked in-world. */
 public final class BlockAgentsCommands {
@@ -49,7 +51,7 @@ public final class BlockAgentsCommands {
         int built = build(source, state);
         if (built == 0) return 0;
         int opened = dashboard(source, state);
-        if (opened != 0) tell(source, bridge.isRunning() ? "Onboarding complete. A local orchestrator can publish updates to localhost:8787." : "Workspace is ready, but the local bridge is offline.");
+        if (opened != 0) tell(source, bridgeGuidance(bridge));
         return opened;
     }
     private static int inspect(CommandSourceStack source, AgentCommunicationService communication, String reference) {
@@ -82,12 +84,12 @@ public final class BlockAgentsCommands {
     }
     private static int onboarding(CommandSourceStack source, LocalBridge bridge) {
         tell(source, "Stand near the middle of a level 31×11 patch of solid, dry ground with clear air above it.");
-        tell(source, bridge.isRunning() ? "Integration bridge: connected at localhost:8787." : "Integration bridge: unavailable; use /blockagents status for details.");
+        tell(source, bridgeGuidance(bridge));
         tell(source, "Fastest start: /blockagents start. It validates the patch, builds the complete space around you, and opens Goat's dashboard.");
         return Command.SINGLE_SUCCESS;
     }
     private static int status(CommandSourceStack source, WorldState state, LocalBridge bridge) {
-        tell(source, "Bridge " + (bridge.isRunning() ? "connected" : "offline") + " | " + state.presentationStatus() + " | " + state.agents().size() + " agents | " + state.tasks().size() + " tasks | " + state.nodes().size() + " nodes | " + state.edges().size() + " edges.");
+        tell(source, "Bridge " + (bridge.isRunning() ? bridge.mutationMode().replace('_', ' ') : "offline") + " | " + state.presentationStatus() + " | " + state.agents().size() + " agents | " + state.tasks().size() + " tasks | " + state.nodes().size() + " nodes | " + state.edges().size() + " edges.");
         return Command.SINGLE_SUCCESS;
     }
     private static int agents(CommandSourceStack source, WorldState state) {
@@ -96,9 +98,21 @@ public final class BlockAgentsCommands {
         return Command.SINGLE_SUCCESS;
     }
     private static int graph(CommandSourceStack source, WorldState state) {
-        tell(source, "Graph observatory: " + state.nodes().size() + " nodes and " + state.edges().size() + " glowing relationships loaded.");
-        state.nodes().stream().limit(8).forEach(n -> tell(source, "• " + n.label() + " [" + n.type() + "]"));
-        return Command.SINGLE_SUCCESS;
+        try {
+            ServerPlayNetworking.send(source.getPlayerOrException(), GraphSnapshot.from(state, ""));
+            return Command.SINGLE_SUCCESS;
+        } catch (Exception notAPlayer) {
+            tell(source, "Knowledge graph: " + state.nodes().size() + " nodes and " + state.edges().size() + " relationships. Open it in a player client.");
+            return 0;
+        }
+    }
+    private static String bridgeGuidance(LocalBridge bridge) {
+        if (!bridge.isRunning()) return "Workspace is ready, but the local bridge is offline. Use /blockagents status for details.";
+        return switch (bridge.mutationMode()) {
+            case "explicit_demo" -> "Local demo bridge ready at localhost:8787. Start a sample adapter to see updates.";
+            case "paired" -> "Paired bridge ready at localhost:8787. Start an adapter with the same pairing token.";
+            default -> "Bridge is listening, but writes need pairing. Set BLOCK_AGENT_SPACES_BRIDGE_TOKEN for Minecraft and the adapter.";
+        };
     }
     private static void tell(CommandSourceStack source, String text) { source.sendSuccess(() -> Component.literal(text), false); }
 }

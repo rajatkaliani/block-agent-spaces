@@ -52,6 +52,8 @@ Requirements: Minecraft Java **26.3**, Fabric, and JDK 25 for development.
 ./gradlew runClient
 ```
 
+`runClient` enables the explicit local demo bridge, so the sample adapter below works without pairing. A packaged mod requires a pairing token for bridge writes.
+
 In the development client:
 
 1. Create or join a world and stand near the middle of a level 31×11 patch of solid, dry ground with open air above it.
@@ -68,7 +70,9 @@ With a world open, start the zero-dependency bridge demo:
 python3 examples/bridge_demo.py
 ```
 
-Right-click Builder and send a note. The notebook refreshes automatically while open; the server confirms whether it accepted the note, and a reply appears only if an adapter publishes one. The demo sends a clearly labelled `DEMO REPLY`; it never echoes player text or claims an agent took real action. The deeper integration examples are:
+Right-click Builder and send a note. The notebook updates automatically and shows a labelled `DEMO REPLY`. For a packaged mod, set `BLOCK_AGENT_SPACES_BRIDGE_TOKEN` in both the Minecraft server and this adapter process.
+
+Further integrations:
 
 - [Goat bridge adapter](examples/goat_bridge_adapter.py): replay-safe local message consumer with pairing support.
 - [Goat lead demo](examples/goat_lead_adapter_demo.py): explicitly labelled deterministic triage visualization.
@@ -81,12 +85,5 @@ Right-click Builder and send a note. The notebook refreshes automatically while 
 - The mod never stores API keys, pairing tokens, absolute workspace paths, or unbounded agent logs.
 - The world state is presentation continuity, not an orchestrator’s durable source of truth. Adapters must republish authoritative tickets, Git state, and agent state after reconnecting.
 - The board and observatory label demo, restored, and live-local data honestly; “live” only means a local process posted an update during the current server run.
-
-## Development
-
-```bash
-./gradlew build
-./gradlew runClient
-```
 
 The built Fabric JAR is written to `build/libs`. For the full bridge and product contract, start with [Goat-led workflow](docs/goat-led-workflow.md); for the optional local-model boundary, read [Ambient intelligence adapter](docs/ambient-intelligence-adapter.md).

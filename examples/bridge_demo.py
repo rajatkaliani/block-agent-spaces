@@ -7,17 +7,22 @@ notebook. The message is read from the ordered outbox and receives one clearly
 labelled deterministic demo reply; it never repeats the player's text.
 """
 
+import hashlib
 import json
+import os
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 BASE_URL = "http://127.0.0.1:8787"
+TOKEN = os.environ.get("BLOCK_AGENT_SPACES_BRIDGE_TOKEN", "").strip()
 
 
 def request(path, method="GET", payload=None):
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     headers = {"Content-Type": "application/json"} if body else {}
+    if body and TOKEN:
+        headers["Authorization"] = f"Bearer {TOKEN}"
     try:
         with urlopen(Request(BASE_URL + path, data=body, method=method, headers=headers), timeout=3) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -43,24 +48,36 @@ def publish_example():
 
 
 def main():
-    print("Health:", request("/health"))
+    health = request("/health")
+    if health.get("bridge") != "block-agent-spaces" or health.get("status") != "ok":
+        raise RuntimeError("localhost:8787 is not a Block Agent Spaces bridge")
+    mode = health.get("mutationMode")
+    if mode == "pairing_required" or (mode == "paired" and not TOKEN):
+        raise RuntimeError("Bridge pairing is required. Set BLOCK_AGENT_SPACES_BRIDGE_TOKEN for both Minecraft and this script, or use the explicit development demo mode.")
+    if mode not in ("paired", "explicit_demo"):
+        raise RuntimeError(f"unsupported bridge mutation mode: {mode}")
+    # Ignore historical messages from previous runs.
+    cursor = request("/v1/events?after=0")["nextCursor"]
     publish_example()
     print("Published demo state. In Minecraft, right-click Builder and send a note from the notebook.")
-    print("Use the notebook Refresh button to retrieve the labelled demo reply.")
+    print("The notebook will show the labelled demo reply automatically.")
 
-    cursor = 0
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         feed = request(f"/v1/events?after={cursor}")
         cursor = feed["nextCursor"]
-        if any(event["type"] == "message.created" for event in feed["events"]):
+        new_message_ids = {event.get("subjectId") for event in feed["events"] if event.get("type") == "message.created"}
+        if new_message_ids:
             messages = request("/v1/messages")
-            minecraft_messages = [message for message in messages if message["from"] == "minecraft-player" and message["to"] == "builder"]
+            minecraft_messages = [message for message in messages
+                                  if message.get("id") in new_message_ids
+                                  and message.get("from") == "minecraft-player"
+                                  and message.get("to") == "builder"]
             if minecraft_messages:
                 message = minecraft_messages[-1]
                 print("Minecraft said:", message["body"])
                 post("/v1/messages", {
-                    "id": f"builder-demo-reply-{message['id']}",
+                    "id": "builder-demo-reply-" + hashlib.sha256(message["id"].encode("utf-8")).hexdigest()[:32],
                     "from": "builder",
                     "to": "minecraft-player",
                     "body": "DEMO REPLY | Builder received your note in the local outbox. This sample does not run a coding agent or change a ticket.",

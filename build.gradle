@@ -44,6 +44,12 @@ java {
 
 tasks.withType(Test).configureEach { useJUnitPlatform() }
 
+// The development client is an explicitly labelled, loopback-only demo.
+// Packaged mods still require pairing for bridge mutations.
+tasks.named('runClient') {
+    systemProperty 'blockagentspaces.bridge.demo', 'true'
+}
+
 dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
