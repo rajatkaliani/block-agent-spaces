@@ -1,5 +1,19 @@
 # Goat-led team workflow and bridge contract
 
+## Current implementation versus target workflow
+
+The mod currently renders agent notebooks, a searchable black-canvas graph,
+a ticket board, and a local bridge. The optional Codex adapter can turn an
+explicit Goat notebook request into one isolated worktree job, run configured
+tests, create a guarded local commit, publish base/head revisions, and hand the
+ticket to `awaiting_review`. Goat's **Status** and **Inspect ticket** buttons
+return reported state and a read-only diff summary without a model call.
+
+The reviewer assignment, semantic code review, acceptance decision, merge,
+central long-term history store, and mid-job developer messaging described
+below are **target workflow**, not implemented by the example adapter. The
+adapter never implies that inspection is approval or that a branch was merged.
+
 ## Purpose
 
 Block Agent Spaces is a Minecraft-native window onto an externally operated
