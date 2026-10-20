@@ -261,27 +261,31 @@ class GoatBridgeAdapter:
     def _handle_player_message(self, message: dict[str, Any], published_ids: set[str]) -> None:
         incoming_id = message["id"]
         reply_id = acknowledgement_id(incoming_id)
+        ticket_request = str(message.get("body", "")).strip().lower().startswith("codex:")
         # Agent updates are upserts. They are deliberately modest: this
         # adapter never pretends that a ticket, branch, review, or merge exists.
-        self.bridge.post("/v1/agents", {
-            "id": GOAT_ID,
-            "displayName": "Goat",
-            "state": "WORKING",
-            "taskId": "",
-            "ticketId": "",
-            "workspace": "external-orchestrator",
-            "branch": "",
-            "reviewStatus": "not_applicable",
-            "acceptanceStatus": "not_applicable",
-            "detail": "Received a player message; waiting for the external orchestrator.",
-            "graphFocus": [],
-        })
+        if not ticket_request:
+            self.bridge.post("/v1/agents", {
+                "id": GOAT_ID,
+                "displayName": "Goat",
+                "state": "WORKING",
+                "taskId": "",
+                "ticketId": "",
+                "workspace": "external-orchestrator",
+                "branch": "",
+                "reviewStatus": "not_applicable",
+                "acceptanceStatus": "not_applicable",
+                "detail": "Received a player message; waiting for the external orchestrator.",
+                "graphFocus": [],
+            })
         if reply_id not in published_ids:
             self.bridge.post("/v1/messages", {
                 "id": reply_id,
                 "from": GOAT_ID,
                 "to": "minecraft-player",
-                "body": "Goat recorded your message for the configured external orchestrator. This example does not run agents, create tickets, or perform Git work.",
+                "body": ("Goat received the ticket request. A running Codex developer adapter can process it; check the ticket board for progress."
+                         if ticket_request else
+                         "Goat recorded your message for the configured external orchestrator. This example does not run agents, create tickets, or perform Git work."),
             })
         # Mark completion only after the deterministic visible acknowledgement
         # is confirmed or found in the bridge. A restart therefore does not
@@ -378,6 +382,17 @@ class GoatBridgeAdapterTest(unittest.TestCase):
         self.assertTrue(player_message_to_goat({"id": "1", "from": "minecraft-player", "to": " Goat "}))
         self.assertFalse(player_message_to_goat({"id": "2", "from": "minecraft-player", "to": "builder"}))
         self.assertFalse(player_message_to_goat({"id": "3", "from": "adapter", "to": "goat"}))
+
+    def test_ticket_acknowledgement_does_not_overwrite_runtime_goat_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = FakeBridge()
+            bridge.feed = {"events": [{"id": 1, "type": "message.created"}], "nextCursor": 1}
+            bridge.message_list = [{"id": "ticket-request", "from": "minecraft-player", "to": "goat", "body": "codex: ticket-1 | Add tests"}]
+            GoatBridgeAdapter(bridge, StateStore(Path(directory) / "state.json")).poll_once()
+            self.assertFalse(any(path == "/v1/agents" for path, _ in bridge.posts))
+            replies = [payload for path, payload in bridge.posts if path == "/v1/messages"]
+            self.assertEqual(1, len(replies))
+            self.assertIn("running Codex developer adapter", replies[0]["body"])
 
 
 def parse_arguments() -> argparse.Namespace:

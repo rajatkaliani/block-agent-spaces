@@ -14,7 +14,7 @@ for review, or a place to put credentials.
 1. Polls the local bridge's ordered event feed and stores a private replay
    cursor. Pairing tokens are only sent as local mutation headers and are never
    printed or written to the state file.
-2. Handles only an explicit player-to-Goat request in this exact format:
+2. Handles an explicit player-to-Goat ticket request. Goat’s **Request ticket** button creates the format automatically; bridge clients can also send it directly:
 
    ```text
    codex: ticket-123 | Add the requested focused change and test it.
@@ -80,10 +80,10 @@ views, and the graph consume no Codex usage.
 
 ## Expected Minecraft flow
 
-1. Open Goat's notebook and send `codex: ticket-123 | ...`.
+1. Open Goat’s notebook, write the task, and select **Request ticket**. The ticket ID appears in the conversation.
 2. The ticket board shows `assigned`, then `in_progress` only when a real local
    job begins.
-3. It reaches `awaiting_review` only after the Codex process and configured
+3. Goat’s notebook reports each phase. The graph links Goat, the ticket, and the Codex Builder. The ticket reaches `awaiting_review` only after the Codex process and configured
    test command succeed. Goat can then assign a reviewer and make a separate,
    explicit acceptance decision.
 4. A failure is visible as `blocked`, with a concise safe reason. Inspect the

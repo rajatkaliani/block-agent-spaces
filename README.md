@@ -41,7 +41,7 @@ Goat is designed to supervise—not impersonate—a development team. A real dev
 
 The included Codex adapter is guarded: dry-run is the default, and worktree creation/execution require explicit opt-in. It never auto-merges, pushes, deletes branches, or removes worktrees. See [Codex developer runtime](docs/codex-developer-runtime.md) for setup and safety details.
 
-The included Codex adapter accepts structured requests to Goat; it is not yet a general-purpose conversational agent. A note will not receive a real answer unless a compatible running adapter handles it.
+In Goat’s notebook, write a task and select **Request ticket**. The mod gives it an ID and sends it to the local outbox; the Codex adapter reports assignment, progress, or a dry-run block back to Goat’s notebook. Free-form chat still requires a compatible running adapter to answer.
 
 ## Quick start
 

@@ -365,10 +365,24 @@ class CodexDeveloperAdapter:
         self.state = store.load()
 
     def _publish(self, request: TicketRequest, phase: str, detail: str) -> None:
-        state = "BLOCKED" if phase == "blocked" else "REVIEWING" if phase == "awaiting_review" else "WORKING"
+        state = "BLOCKED" if phase == "blocked" else "COMPLETE" if phase == "awaiting_review" else "WORKING"
         review = "awaiting_review" if phase == "awaiting_review" else "not_requested"
-        workspace = f"isolated ticket workspace: {request.ticket_id}" if self.execute else "not created (dry run)"
-        branch = f"agent/block-agent-spaces/{request.ticket_id}" if self.execute else "not created (dry run)"
+        workspace = (f"isolated ticket workspace: {request.ticket_id}" if phase == "awaiting_review" else
+                     "may exist; inspect locally" if self.execute and phase == "blocked" else
+                     "requested, not confirmed" if self.execute else "not created (dry run)")
+        branch = (f"agent/block-agent-spaces/{request.ticket_id}" if phase == "awaiting_review" else
+                  "not confirmed" if self.execute else "not created (dry run)")
+        for node in (
+            {"id": "agent-goat", "label": "Goat", "type": "agent"},
+            {"id": "agent-codex-builder", "label": "Codex Builder", "type": "agent"},
+            {"id": request.ticket_id, "label": f"Ticket {request.ticket_id}", "type": "ticket"},
+        ):
+            self.bridge.post("/v1/graph/nodes", node)
+        for edge in (
+            {"id": f"goat-assigns-{request.ticket_id}", "sourceId": "agent-goat", "targetId": request.ticket_id, "relationship": "assigns"},
+            {"id": f"builder-develops-{request.ticket_id}", "sourceId": "agent-codex-builder", "targetId": request.ticket_id, "relationship": "develops"},
+        ):
+            self.bridge.post("/v1/graph/edges", edge)
         self.bridge.post("/v1/tasks", {
             "id": request.ticket_id, "title": f"Codex ticket {request.ticket_id}",
             "description": detail, "status": phase,
@@ -377,11 +391,22 @@ class CodexDeveloperAdapter:
             "id": DEVELOPER_ID, "displayName": "Codex Builder", "state": state,
             "taskId": request.ticket_id, "ticketId": request.ticket_id,
             "workspace": workspace, "branch": branch, "reviewStatus": review,
-            "acceptanceStatus": "not_accepted", "detail": detail, "graphFocus": [request.ticket_id],
+            "acceptanceStatus": "not_accepted", "detail": detail, "graphFocus": ["agent-codex-builder", request.ticket_id],
+        })
+        self.bridge.post("/v1/agents", {
+            "id": GOAT_ID, "displayName": "Goat", "state": "REVIEWING" if phase == "awaiting_review" else "WORKING",
+            "taskId": request.ticket_id, "ticketId": request.ticket_id,
+            "workspace": "control-room", "branch": "", "reviewStatus": review,
+            "acceptanceStatus": "pending", "detail": f"Coordinating {request.ticket_id}: {phase}. {detail}",
+            "graphFocus": ["agent-goat", request.ticket_id],
         })
         self.bridge.post("/v1/messages", {
             "id": stable_id("codex-runtime", request.message_id, phase), "from": DEVELOPER_ID,
             "to": GOAT_ID, "body": f"Codex ticket {request.ticket_id}: {phase}. {detail}",
+        })
+        self.bridge.post("/v1/messages", {
+            "id": stable_id("goat-report", request.message_id, phase), "from": GOAT_ID,
+            "to": "minecraft-player", "body": f"Ticket {request.ticket_id}: {phase}. {detail}",
         })
 
     def _finish(self, request: TicketRequest) -> None:
@@ -474,6 +499,13 @@ class CodexDeveloperAdapterTest(unittest.TestCase):
             task_states = [payload["status"] for path, payload in bridge.posts if path == "/v1/tasks"]
             self.assertEqual(task_states, ["assigned", "blocked"])
             self.assertTrue(any("Dry run" in payload["body"] for path, payload in bridge.posts if path == "/v1/messages"))
+            self.assertTrue(any(path == "/v1/graph/nodes" and payload["id"] == "ticket-1" for path, payload in bridge.posts))
+            self.assertTrue(any(path == "/v1/graph/edges" and payload["relationship"] == "assigns" for path, payload in bridge.posts))
+            reports = [payload for path, payload in bridge.posts if path == "/v1/messages" and payload["from"] == GOAT_ID and payload["to"] == "minecraft-player"]
+            self.assertEqual(2, len(reports))
+            self.assertTrue(any("blocked" in report["body"] for report in reports))
+            goat_updates = [payload for path, payload in bridge.posts if path == "/v1/agents" and payload["id"] == GOAT_ID]
+            self.assertTrue(all(update["state"] == "WORKING" for update in goat_updates))
 
     def test_interrupted_launch_is_not_restarted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -487,6 +519,26 @@ class CodexDeveloperAdapterTest(unittest.TestCase):
             adapter.poll_once()
             messages = [payload["body"] for path, payload in bridge.posts if path == "/v1/messages"]
             self.assertTrue(any("not retried automatically" in message for message in messages))
+
+    def test_success_hands_builder_to_review_and_reports_to_player(self) -> None:
+        class SuccessfulRunner:
+            def run(self, request: TicketRequest) -> None:
+                self.request = request
+
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = FakeBridge()
+            bridge.feed = {"events": [{"type": "message.created"}], "nextCursor": 1}
+            bridge.message_list = [{"id": "m1", "from": "minecraft-player", "to": "goat", "body": "codex: ticket-1 | Add a test"}]
+            runner = SuccessfulRunner()
+            CodexDeveloperAdapter(bridge, StateStore(Path(directory) / "state.json"), runner, execute=True).poll_once()
+            self.assertEqual(["assigned", "in_progress", "awaiting_review"],
+                             [payload["status"] for path, payload in bridge.posts if path == "/v1/tasks"])
+            builder = [payload for path, payload in bridge.posts if path == "/v1/agents" and payload["id"] == DEVELOPER_ID][-1]
+            goat = [payload for path, payload in bridge.posts if path == "/v1/agents" and payload["id"] == GOAT_ID][-1]
+            self.assertEqual("COMPLETE", builder["state"])
+            self.assertEqual("REVIEWING", goat["state"])
+            self.assertTrue(any(path == "/v1/messages" and payload["from"] == GOAT_ID and "awaiting_review" in payload["body"]
+                                for path, payload in bridge.posts))
 
     def test_state_is_private_and_never_contains_token_or_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
