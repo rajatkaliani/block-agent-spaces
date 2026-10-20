@@ -33,6 +33,7 @@ final class ConversationScreen extends Screen {
     private Button refreshButton;
     private String deliveryStatus;
     private boolean sending;
+    private String pendingRequestId = "";
     private int refreshTicks;
     private int transcriptScroll;
     private int maxTranscriptScroll;
@@ -174,8 +175,9 @@ final class ConversationScreen extends Screen {
     }
 
     void sent(ConversationPayloads.SendResult result) {
-        if (!sending) return;
+        if (!sending || !pendingRequestId.equals(result.requestId())) return;
         sending = false;
+        pendingRequestId = "";
         draft.setEditable(true);
         if (result.accepted()) draft.setValue("");
         sendButton.active = !draft.getValue().trim().isEmpty();
@@ -186,10 +188,11 @@ final class ConversationScreen extends Screen {
         String body = safe(draft.getValue()).trim();
         if (body.isEmpty() || sending) return;
         sending = true;
+        pendingRequestId = java.util.UUID.randomUUID().toString();
         draft.setEditable(false);
         sendButton.active = false;
         deliveryStatus = "Sending to the local bridge…";
-        ClientPlayNetworking.send(new ConversationPayloads.Send(context.agentId(), body));
+        ClientPlayNetworking.send(new ConversationPayloads.Send(context.agentId(), body, pendingRequestId));
     }
 
     private void refreshConversation() {
@@ -256,10 +259,11 @@ final class ConversationScreen extends Screen {
     /** Components are literal and this removes control characters before any text reaches the renderer. */
     private static String safe(String value) {
         if (value == null) return "—";
-        StringBuilder result = new StringBuilder(Math.min(value.length(), MAX_MESSAGE_LENGTH));
-        for (int index = 0; index < value.length() && result.length() < MAX_MESSAGE_LENGTH; index++) {
+        StringBuilder result = new StringBuilder(Math.min(value.length(), 4000));
+        for (int index = 0; index < value.length() && result.length() < 4000; index++) {
             char character = value.charAt(index);
-            if (!Character.isISOControl(character) || character == ' ') result.append(character);
+            if (character == '\n' || character == '\r' || character == '\t') result.append(' ');
+            else if (!Character.isISOControl(character)) result.append(character);
         }
         return result.toString();
     }

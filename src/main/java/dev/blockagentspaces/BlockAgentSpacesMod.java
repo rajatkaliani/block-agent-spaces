@@ -46,7 +46,7 @@ public final class BlockAgentSpacesMod implements ModInitializer {
             // messages invisible to adapters expecting minecraft-player.
             AgentCommunicationService.SendResult result = new AgentCommunicationService(worldState).sendFromMinecraft(payload.agentId(), payload.body());
             if (result.sent()) ServerPlayNetworking.send(context.player(), new ConversationPayloads.Update(AgentInteractionHandler.notebookSnapshot(new AgentCommunicationService(worldState), result.agent())));
-            ServerPlayNetworking.send(context.player(), new ConversationPayloads.SendResult(payload.agentId(), result.sent(), result.sent()
+            ServerPlayNetworking.send(context.player(), new ConversationPayloads.SendResult(payload.agentId(), payload.requestId(), result.sent(), result.sent()
                 ? "Saved to the local bridge outbox • waiting for an adapter reply."
                 : result.error()));
         });

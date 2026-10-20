@@ -22,7 +22,7 @@ class GraphSnapshotTest {
     @Test void capsGraphAndRetainsSelectedNodeWithoutDanglingEdges() {
         WorldState state = new WorldState();
         for (int i = 0; i < 140; i++) state.putNode(new GraphNode(String.format("n%03d", i), "node", "note", Map.of()));
-        state.putNode(new GraphNode("x".repeat(65), "oversized id", "note", Map.of()));
+        state.putNode(new GraphNode("x".repeat(129), "oversized id", "note", Map.of()));
         state.putEdge(new GraphEdge("visible", "n139", "n000", "relates"));
         state.putEdge(new GraphEdge("hidden", "n138", "missing", "relates"));
         GraphPayloads.Open graph = GraphSnapshot.from(state, "n139");

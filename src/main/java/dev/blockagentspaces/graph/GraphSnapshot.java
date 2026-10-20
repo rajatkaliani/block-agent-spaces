@@ -14,7 +14,7 @@ public final class GraphSnapshot {
     public static GraphPayloads.Open from(WorldState state, String selected) {
         var allNodes = state.nodes().stream().sorted(Comparator.comparing((GraphNode n) -> !n.id().equals(selected)).thenComparing(GraphNode::id)).toList();
         // IDs are protocol identities: never silently truncate them into another node's identity.
-        var nodes = allNodes.stream().filter(n -> n.id().length() <= 64)
+        var nodes = allNodes.stream().filter(n -> n.id().length() <= 128)
             .limit(GraphPayloads.MAX_NODES).map(n -> new GraphPayloads.Node(n.id(), limit(n.label(), 128), limit(n.type(), 64), linkedAgent(state, n))) .toList();
         Set<String> ids = nodes.stream().map(GraphPayloads.Node::id).collect(Collectors.toSet());
         var allEdges = state.edges().stream().filter(e -> ids.contains(e.sourceId()) && ids.contains(e.targetId()))
@@ -25,7 +25,7 @@ public final class GraphSnapshot {
             allNodes.size() != nodes.size() || allEdges.size() != edges.size());
     }
     private static String linkedAgent(WorldState state, GraphNode node) {
-        return state.agents().stream().filter(a -> a.id().length() <= 64 && (a.ticketId().equalsIgnoreCase(node.id())
+        return state.agents().stream().filter(a -> a.id().length() <= 128 && (a.ticketId().equalsIgnoreCase(node.id())
             || a.taskId().equalsIgnoreCase(node.id()) || a.graphFocus().stream().anyMatch(id -> id.equalsIgnoreCase(node.id()))))
             .sorted(Comparator.comparing(Agent::id)).map(Agent::id).findFirst().orElse("");
     }

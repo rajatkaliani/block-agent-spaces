@@ -17,7 +17,7 @@ public final class AgentCommunicationService {
      * the legacy command surface.
      */
     public static final String MINECRAFT_PLAYER = "minecraft-player";
-    private static final int MAX_REFERENCE_LENGTH = 64;
+    private static final int MAX_REFERENCE_LENGTH = 128;
     private static final int MAX_MESSAGE_LENGTH = 400;
     private final WorldState state;
 

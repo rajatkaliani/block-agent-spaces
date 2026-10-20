@@ -18,31 +18,31 @@ public final class GraphPayloads {
         public static final Type<Open> TYPE = new Type<>(Identifier.fromNamespaceAndPath(BlockAgentSpacesMod.MOD_ID, "open_graph"));
         public static final StreamCodec<RegistryFriendlyByteBuf, Open> CODEC = StreamCodec.of((buf, p) -> {
             buf.writeVarInt(p.nodes.size());
-            for (Node n : p.nodes) { buf.writeUtf(n.id, 64); buf.writeUtf(n.label, 128); buf.writeUtf(n.type, 64); buf.writeUtf(n.agentId, 64); }
+            for (Node n : p.nodes) { buf.writeUtf(n.id, 128); buf.writeUtf(n.label, 128); buf.writeUtf(n.type, 64); buf.writeUtf(n.agentId, 128); }
             buf.writeVarInt(p.edges.size());
-            for (Edge e : p.edges) { buf.writeUtf(e.source, 64); buf.writeUtf(e.target, 64); buf.writeUtf(e.relationship, 64); }
-            buf.writeUtf(p.selected, 64); buf.writeUtf(p.status, 128); buf.writeBoolean(p.truncated);
+            for (Edge e : p.edges) { buf.writeUtf(e.source, 128); buf.writeUtf(e.target, 128); buf.writeUtf(e.relationship, 64); }
+            buf.writeUtf(p.selected, 128); buf.writeUtf(p.status, 128); buf.writeBoolean(p.truncated);
         }, buf -> {
             int count = buf.readVarInt();
             if (count < 0 || count > MAX_NODES) throw new IllegalArgumentException("invalid graph node count");
             List<Node> nodes = new ArrayList<>(count);
-            for (int i = 0; i < count; i++) nodes.add(new Node(buf.readUtf(64), buf.readUtf(128), buf.readUtf(64), buf.readUtf(64)));
+            for (int i = 0; i < count; i++) nodes.add(new Node(buf.readUtf(128), buf.readUtf(128), buf.readUtf(64), buf.readUtf(128)));
             count = buf.readVarInt();
             if (count < 0 || count > MAX_EDGES) throw new IllegalArgumentException("invalid graph edge count");
             List<Edge> edges = new ArrayList<>(count);
-            for (int i = 0; i < count; i++) edges.add(new Edge(buf.readUtf(64), buf.readUtf(64), buf.readUtf(64)));
-            return new Open(List.copyOf(nodes), List.copyOf(edges), buf.readUtf(64), buf.readUtf(128), buf.readBoolean());
+            for (int i = 0; i < count; i++) edges.add(new Edge(buf.readUtf(128), buf.readUtf(128), buf.readUtf(64)));
+            return new Open(List.copyOf(nodes), List.copyOf(edges), buf.readUtf(128), buf.readUtf(128), buf.readBoolean());
         });
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
     public record Request(String selected) implements CustomPacketPayload {
         public static final Type<Request> TYPE = new Type<>(Identifier.fromNamespaceAndPath(BlockAgentSpacesMod.MOD_ID, "request_graph"));
-        public static final StreamCodec<RegistryFriendlyByteBuf, Request> CODEC = StreamCodec.of((buf, p) -> buf.writeUtf(p.selected, 64), buf -> new Request(buf.readUtf(64)));
+        public static final StreamCodec<RegistryFriendlyByteBuf, Request> CODEC = StreamCodec.of((buf, p) -> buf.writeUtf(p.selected, 128), buf -> new Request(buf.readUtf(128)));
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
     public record Refresh(String selected) implements CustomPacketPayload {
         public static final Type<Refresh> TYPE = new Type<>(Identifier.fromNamespaceAndPath(BlockAgentSpacesMod.MOD_ID, "refresh_graph"));
-        public static final StreamCodec<RegistryFriendlyByteBuf, Refresh> CODEC = StreamCodec.of((buf, p) -> buf.writeUtf(p.selected, 64), buf -> new Refresh(buf.readUtf(64)));
+        public static final StreamCodec<RegistryFriendlyByteBuf, Refresh> CODEC = StreamCodec.of((buf, p) -> buf.writeUtf(p.selected, 128), buf -> new Refresh(buf.readUtf(128)));
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
     public record Update(Open snapshot) implements CustomPacketPayload {
@@ -52,7 +52,7 @@ public final class GraphPayloads {
     }
     public record OpenAgent(String agentId) implements CustomPacketPayload {
         public static final Type<OpenAgent> TYPE = new Type<>(Identifier.fromNamespaceAndPath(BlockAgentSpacesMod.MOD_ID, "graph_open_agent"));
-        public static final StreamCodec<RegistryFriendlyByteBuf, OpenAgent> CODEC = StreamCodec.of((buf, p) -> buf.writeUtf(p.agentId, 64), buf -> new OpenAgent(buf.readUtf(64)));
+        public static final StreamCodec<RegistryFriendlyByteBuf, OpenAgent> CODEC = StreamCodec.of((buf, p) -> buf.writeUtf(p.agentId, 128), buf -> new OpenAgent(buf.readUtf(128)));
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 }

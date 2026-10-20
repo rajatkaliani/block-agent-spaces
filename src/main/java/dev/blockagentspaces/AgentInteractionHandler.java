@@ -56,11 +56,12 @@ public final class AgentInteractionHandler {
     public static ConversationPayloads.Open notebookSnapshot(AgentCommunicationService communication, dev.blockagentspaces.model.Agent agent) {
         List<ConversationPayloads.Entry> conversation = communication.conversationFor(agent.id()).stream()
             .map(entry -> new ConversationPayloads.Entry(
-                entry.direction() == AgentCommunicationService.Direction.OUTGOING ? "You" : agent.displayName(),
-                entry.message().body(),
+                entry.direction() == AgentCommunicationService.Direction.OUTGOING ? "You" : limit(agent.displayName(), 128),
+                limit(entry.message().body(), 4000),
                 entry.direction() == AgentCommunicationService.Direction.OUTGOING))
             .toList();
         String delivery = "Messages enter the local bridge outbox. Waiting for a configured adapter to reply.";
-        return new ConversationPayloads.Open(agent.id(), agent.displayName(), agent.state().name(), agent.taskId(), agent.ticketId(), agent.workspace(), agent.branch(), agent.reviewStatus(), agent.acceptanceStatus(), agent.detail(), conversation, delivery);
+        return new ConversationPayloads.Open(agent.id(), limit(agent.displayName(), 128), agent.state().name(), limit(agent.taskId(), 128), limit(agent.ticketId(), 128), limit(agent.workspace(), 128), limit(agent.branch(), 128), limit(agent.reviewStatus(), 64), limit(agent.acceptanceStatus(), 64), limit(agent.detail(), 512), conversation, delivery);
     }
+    private static String limit(String value, int length) { return value.length() <= length ? value : value.substring(0, length); }
 }
