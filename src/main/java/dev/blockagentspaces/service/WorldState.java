@@ -30,7 +30,13 @@ public final class WorldState {
     public void putTask(Task task) { tasks.put(task.id(), task); event("task.updated", task.id()); }
     public void putNode(GraphNode node) { nodes.put(node.id(), node); event("graph.node.updated", node.id()); }
     public void putEdge(GraphEdge edge) { edges.put(edge.id(), edge); event("graph.edge.updated", edge.id()); }
-    public void addMessage(AgentMessage message) {
+    public synchronized void addMessage(AgentMessage message) {
+        for (AgentMessage existing : messages) {
+            if (!existing.id().equals(message.id())) continue;
+            if (existing.from().equals(message.from()) && existing.to().equals(message.to())
+                && existing.body().equals(message.body())) return;
+            throw new IllegalArgumentException("message id is already used for different content");
+        }
         messages.add(message);
         if (messages.size() > MAX_PERSISTED_MESSAGES) messages.remove(0);
         event("message.created", message.id());

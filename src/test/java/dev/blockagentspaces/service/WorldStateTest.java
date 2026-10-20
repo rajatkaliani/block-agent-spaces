@@ -42,4 +42,14 @@ class WorldStateTest {
         state.markExternalUpdate();
         assertEquals("LIVE LOCAL UPDATES", state.presentationStatus());
     }
+    @Test void messageRetriesDoNotDuplicateVisibleReplies() {
+        WorldState state = new WorldState();
+        state.addMessage(new AgentMessage("reply-1", "goat", "minecraft-player", "Ticket assigned.", Instant.EPOCH));
+        state.addMessage(new AgentMessage("reply-1", "goat", "minecraft-player", "Ticket assigned.", Instant.now()));
+
+        assertEquals(1, state.messages().size());
+        assertEquals(1, state.eventsAfter(0).size());
+        assertThrows(IllegalArgumentException.class, () -> state.addMessage(
+            new AgentMessage("reply-1", "goat", "minecraft-player", "Different reply.", Instant.now())));
+    }
 }
