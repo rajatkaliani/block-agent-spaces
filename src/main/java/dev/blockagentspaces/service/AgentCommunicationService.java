@@ -36,6 +36,16 @@ public final class AgentCommunicationService {
             .max(Comparator.comparing(AgentMessage::createdAt));
     }
 
+    /** Describes the transport state without mistaking a saved note for a model reply. */
+    public String notebookStatus(String reference) {
+        if (!state.bridgeAvailable()) return "Bridge offline • notes are saved in this world until it starts.";
+        List<ConversationMessage> conversation = conversationFor(reference);
+        if (conversation.isEmpty()) return "Bridge ready • replies require a running agent adapter.";
+        return conversation.getLast().direction() == Direction.OUTGOING
+            ? "Note saved in the local outbox • waiting for an adapter reply."
+            : "Agent reply received • the notebook is up to date.";
+    }
+
     /**
      * Returns only the two directions that belong in this agent's notebook.
      * In particular, a player-to-agent outbox entry is never rendered as if

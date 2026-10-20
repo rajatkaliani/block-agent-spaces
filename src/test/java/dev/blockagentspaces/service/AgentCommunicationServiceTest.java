@@ -43,4 +43,17 @@ class AgentCommunicationServiceTest {
         assertEquals(AgentCommunicationService.Direction.INCOMING, thread.get(1).direction());
         assertEquals("I recorded it for triage.", thread.get(1).message().body());
     }
+
+    @Test void notebookStatusReflectsBridgeAndReplyDirection() {
+        WorldState state = new WorldState();
+        state.putAgent(new Agent("builder", "Builder", AgentState.WORKING, "", "", "", "", "", "", "", List.of(), Instant.EPOCH));
+        AgentCommunicationService service = new AgentCommunicationService(state);
+        assertTrue(service.notebookStatus("builder").contains("offline"));
+        state.setBridgeAvailable(true);
+        assertTrue(service.notebookStatus("builder").contains("replies require"));
+        service.sendFromMinecraft("builder", "How is the ticket?");
+        assertTrue(service.notebookStatus("builder").contains("waiting"));
+        state.addMessage(new dev.blockagentspaces.model.AgentMessage("reply", "builder", "minecraft-player", "In review.", Instant.now().plusSeconds(1)));
+        assertTrue(service.notebookStatus("builder").contains("reply received"));
+    }
 }

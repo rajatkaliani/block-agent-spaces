@@ -44,10 +44,11 @@ public final class BlockAgentSpacesMod implements ModInitializer {
             // The local bridge has one stable player identity. Display names are
             // presentation only; leaking them into the protocol made notebook
             // messages invisible to adapters expecting minecraft-player.
-            AgentCommunicationService.SendResult result = new AgentCommunicationService(worldState).sendFromMinecraft(payload.agentId(), payload.body());
-            if (result.sent()) ServerPlayNetworking.send(context.player(), new ConversationPayloads.Update(AgentInteractionHandler.notebookSnapshot(new AgentCommunicationService(worldState), result.agent())));
+            AgentCommunicationService communication = new AgentCommunicationService(worldState);
+            AgentCommunicationService.SendResult result = communication.sendFromMinecraft(payload.agentId(), payload.body());
+            if (result.sent()) ServerPlayNetworking.send(context.player(), new ConversationPayloads.Update(AgentInteractionHandler.notebookSnapshot(communication, result.agent())));
             ServerPlayNetworking.send(context.player(), new ConversationPayloads.SendResult(payload.agentId(), payload.requestId(), result.sent(), result.sent()
-                ? "Saved to the local bridge outbox • waiting for an adapter reply."
+                ? communication.notebookStatus(result.agent().id())
                 : result.error()));
         });
         ServerPlayNetworking.registerGlobalReceiver(ConversationPayloads.Refresh.TYPE, (payload, context) -> {

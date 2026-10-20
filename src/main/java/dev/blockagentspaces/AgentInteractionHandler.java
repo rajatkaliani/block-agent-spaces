@@ -60,7 +60,7 @@ public final class AgentInteractionHandler {
                 limit(entry.message().body(), 4000),
                 entry.direction() == AgentCommunicationService.Direction.OUTGOING))
             .toList();
-        String delivery = "Messages enter the local bridge outbox. Waiting for a configured adapter to reply.";
+        String delivery = communication.notebookStatus(agent.id());
         return new ConversationPayloads.Open(agent.id(), limit(agent.displayName(), 128), agent.state().name(), limit(agent.taskId(), 128), limit(agent.ticketId(), 128), limit(agent.workspace(), 128), limit(agent.branch(), 128), limit(agent.reviewStatus(), 64), limit(agent.acceptanceStatus(), 64), limit(agent.detail(), 512), conversation, delivery);
     }
     private static String limit(String value, int length) { return value.length() <= length ? value : value.substring(0, length); }

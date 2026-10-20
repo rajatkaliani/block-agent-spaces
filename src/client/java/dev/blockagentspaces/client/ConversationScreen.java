@@ -30,8 +30,7 @@ final class ConversationScreen extends Screen {
     private final List<NotebookMessage> messages;
     private EditBox draft;
     private Button sendButton;
-    private Button clearFocusButton;
-    private Button refreshButton;
+    private Button graphButton;
     private String deliveryStatus;
     private boolean sending;
     private String pendingRequestId = "";
@@ -59,8 +58,7 @@ final class ConversationScreen extends Screen {
         int composeY = Math.max(138, height - 48);
         int sendWidth = 58;
         int focusWidth = 82;
-        int refreshWidth = 58;
-        int draftWidth = Math.max(80, panelWidth - sendWidth - focusWidth - refreshWidth - 28);
+        int draftWidth = Math.max(80, panelWidth - sendWidth - focusWidth - 28);
 
         draft = new EditBox(font, panelX + 8, composeY, draftWidth, 20, Component.literal("Message " + safe(context.name())));
         draft.setMaxLength(MAX_MESSAGE_LENGTH);
@@ -74,13 +72,10 @@ final class ConversationScreen extends Screen {
                 .bounds(panelX + panelWidth - sendWidth - 8, composeY, sendWidth, 20)
                 .build());
         sendButton.active = !sending && !existingDraft.trim().isEmpty();
-        refreshButton = addRenderableWidget(Button.builder(Component.literal("Refresh"), button -> refreshConversation())
-                .bounds(panelX + panelWidth - sendWidth - focusWidth - refreshWidth - 16, composeY, refreshWidth, 20)
-                .build());
-        clearFocusButton = addRenderableWidget(Button.builder(Component.literal("Graph"), button -> ClientPlayNetworking.send(new GraphPayloads.Request("")))
+        graphButton = addRenderableWidget(Button.builder(Component.literal("Graph"), button -> ClientPlayNetworking.send(new GraphPayloads.Request("")))
                 .bounds(panelX + panelWidth - sendWidth - focusWidth - 12, composeY, focusWidth, 20)
                 .build());
-        clearFocusButton.active = true;
+        graphButton.active = true;
         setInitialFocus(draft);
     }
 
@@ -115,20 +110,20 @@ final class ConversationScreen extends Screen {
         boolean isGoat = "goat".equalsIgnoreCase(context.agentId()) || "goat".equalsIgnoreCase(name);
         graphics.text(font, Component.literal(clipped(name + (isGoat ? "  • LEAD AGENT" : "  • WORKSPACE AGENT"), panelWidth - 20)), panelX + 10, panelY + 10, isGoat ? 0xFFF6CE72 : 0xFFE4E9F0, true);
         int columnWidth = Math.max(95, panelWidth / 2 - 18);
-        graphics.text(font, Component.literal(clipped("State: " + context.state(), columnWidth)), panelX + 10, panelY + 34, stateColor(context.state()), false);
-        graphics.text(font, Component.literal(clipped("Task: " + context.task(), columnWidth)), panelX + 10, panelY + 47, 0xFFD7DFE8, false);
-        graphics.text(font, Component.literal(clipped("Ticket: " + context.ticket(), columnWidth)), panelX + 10, panelY + 62, 0xFFAFC3D9, false);
-        graphics.text(font, Component.literal(clipped("Workspace: " + context.workspace(), columnWidth)), panelX + 10, panelY + 75, 0xFFAFC3D9, false);
+        drawField(graphics, "State: " + context.state(), panelX + 10, panelY + 34, columnWidth, stateColor(context.state()), mouseX, mouseY);
+        drawField(graphics, "Task: " + context.task(), panelX + 10, panelY + 47, columnWidth, 0xFFD7DFE8, mouseX, mouseY);
+        drawField(graphics, "Ticket: " + context.ticket(), panelX + 10, panelY + 62, columnWidth, 0xFFAFC3D9, mouseX, mouseY);
+        drawField(graphics, "Workspace: " + context.workspace(), panelX + 10, panelY + 75, columnWidth, 0xFFAFC3D9, mouseX, mouseY);
 
         int rightX = panelX + Math.max(10, panelWidth / 2);
-        graphics.text(font, Component.literal(clipped("Branch: " + context.branch(), columnWidth)), rightX, panelY + 34, 0xFFAFC3D9, false);
-        graphics.text(font, Component.literal(clipped("Review: " + context.review(), columnWidth)), rightX, panelY + 47, reviewColor(context.review()), false);
-        graphics.text(font, Component.literal(clipped("Acceptance: " + context.acceptance(), columnWidth)), rightX, panelY + 62, acceptanceColor(context.acceptance()), false);
-        graphics.text(font, Component.literal(clipped(context.detail(), columnWidth)), rightX, panelY + 75, 0xFFBAC2CB, false);
+        drawField(graphics, "Branch: " + context.branch(), rightX, panelY + 34, columnWidth, 0xFFAFC3D9, mouseX, mouseY);
+        drawField(graphics, "Review: " + context.review(), rightX, panelY + 47, columnWidth, reviewColor(context.review()), mouseX, mouseY);
+        drawField(graphics, "Acceptance: " + context.acceptance(), rightX, panelY + 62, columnWidth, acceptanceColor(context.acceptance()), mouseX, mouseY);
+        drawField(graphics, context.detail(), rightX, panelY + 75, columnWidth, 0xFFBAC2CB, mouseX, mouseY);
 
         graphics.text(font, Component.literal("Conversation"), panelX + 10, panelY + 106, 0xFFB8C7D9, true);
         drawMessages(graphics, panelX + 12, panelY + 120, panelWidth - 24, composeY - (panelY + 128));
-        graphics.text(font, Component.literal(clipped(deliveryStatus, panelWidth - 20)), panelX + 10, composeY + 25, 0xFF94A1AF, false);
+        drawField(graphics, deliveryStatus, panelX + 10, composeY + 25, panelWidth - 20, 0xFF94A1AF, mouseX, mouseY);
 
         super.extractRenderState(graphics, mouseX, mouseY, delta);
     }
@@ -205,11 +200,6 @@ final class ConversationScreen extends Screen {
         ClientPlayNetworking.send(new ConversationPayloads.Send(context.agentId(), body, pendingRequestId));
     }
 
-    private void refreshConversation() {
-        deliveryStatus = "Refreshing the server transcript…";
-        ClientPlayNetworking.send(new ConversationPayloads.Refresh(context.agentId()));
-    }
-
     private void drawMessages(GuiGraphicsExtractor graphics, int x, int y, int availableWidth, int availableHeight) {
         if (messages.isEmpty()) {
             graphics.text(font, Component.literal("No messages yet. Send a concise update or question."), x, y, 0xFF8C98A5, false);
@@ -282,6 +272,13 @@ final class ConversationScreen extends Screen {
         String plain = safe(value).replaceAll("\\s+", " ").trim();
         if (font.width(plain) <= pixelWidth) return plain;
         return font.plainSubstrByWidth(plain, Math.max(1, pixelWidth - font.width("…"))) + "…";
+    }
+
+    private void drawField(GuiGraphicsExtractor graphics, String value, int x, int y, int width, int color, int mouseX, int mouseY) {
+        String visible = clipped(value, width);
+        graphics.text(font, Component.literal(visible), x, y, color, false);
+        if (visible.endsWith("…") && mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + 11)
+            graphics.setTooltipForNextFrame(Component.literal(safe(value)), mouseX, mouseY);
     }
 
     private record NotebookMessage(String sender, String body, boolean outgoing) { }
