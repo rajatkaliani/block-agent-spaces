@@ -8,6 +8,7 @@ import java.util.Map;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
@@ -19,6 +20,7 @@ final class GraphScreen extends Screen {
     private final Map<String, Point> points = new HashMap<>();
     private GraphPayloads.Node selected;
     private Button agentButton;
+    private EditBox search;
     private double zoom = 1.0, panX, panY;
     private int refreshTicks;
 
@@ -30,6 +32,12 @@ final class GraphScreen extends Screen {
     }
 
     @Override protected void init() {
+        String query = search == null ? "" : search.getValue();
+        search = new EditBox(font, 12, 38, Math.max(70, Math.min(230, sideX() - 24)), 18, Component.literal("Search graph"));
+        search.setMaxLength(80);
+        search.setHint(Component.literal("Search nodes…"));
+        search.setValue(query);
+        addRenderableWidget(search);
         agentButton = addRenderableWidget(Button.builder(Component.literal("Open agent notebook"), b -> {
             if (selected != null && !selected.agentId().isEmpty()) ClientPlayNetworking.send(new GraphPayloads.OpenAgent(selected.agentId()));
         }).bounds(sideX() + 8, height - 32, Math.max(90, width - sideX() - 16), 20).build());
@@ -43,7 +51,7 @@ final class GraphScreen extends Screen {
     }
 
     @Override public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float delta) {
-        g.enableScissor(0, 36, sideX(), height - 24);
+        g.enableScissor(0, 60, sideX(), height - 24);
         for (GraphPayloads.Edge edge : graph.edges()) {
             Point a = points.get(edge.source()), b = points.get(edge.target());
             if (a == null || b == null) continue;
@@ -54,11 +62,12 @@ final class GraphScreen extends Screen {
             Point p = points.get(node.id());
             int x = x(p), y = y(p);
             boolean active = selected != null && selected.id().equals(node.id());
-            int color = color(node.type());
+            boolean matches = matches(node);
+            int color = matches ? color(node.type()) : 0xFF35404B;
             circle(g, x, y, active ? 8 : 6, active ? 0xFFFFFFFF : 0xFF31414C);
             circle(g, x, y, active ? 6 : 4, color);
             String label = clip(node.label(), 120);
-            g.centeredText(font, label, x, y + 10, active ? 0xFFFFFFFF : 0xFFB6C7D3);
+            g.centeredText(font, label, x, y + 10, active ? 0xFFFFFFFF : matches ? 0xFFB6C7D3 : 0xFF4D5962);
         }
         g.disableScissor();
         g.text(font, "KNOWLEDGE GRAPH", 12, 10, 0xFFE2EDF3, true);
@@ -92,7 +101,7 @@ final class GraphScreen extends Screen {
 
     @Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (super.mouseClicked(event, doubleClick)) return true;
-        if (event.button() != 0 || event.x() >= sideX() || event.y() < 36 || event.y() >= height - 24) return false;
+        if (event.button() != 0 || event.x() >= sideX() || event.y() < 60 || event.y() >= height - 24) return false;
         GraphPayloads.Node nearest = null;
         double distance = 14 * 14;
         for (GraphPayloads.Node node : graph.nodes()) {
@@ -137,6 +146,10 @@ final class GraphScreen extends Screen {
     }
     private void updateButton() { agentButton.active = selected != null && !selected.agentId().isEmpty(); }
     private int sideX() { return Math.max(100, width - Math.min(200, Math.max(120, width / 3))); }
+    private boolean matches(GraphPayloads.Node node) {
+        String query = search == null ? "" : search.getValue().trim().toLowerCase(java.util.Locale.ROOT);
+        return query.isEmpty() || (node.id() + " " + node.label() + " " + node.type()).toLowerCase(java.util.Locale.ROOT).contains(query);
+    }
     private int x(Point p) { return (int) Math.round(sideX() / 2.0 + panX + p.x * zoom * Math.max(40, sideX() * 0.40)); }
     private int y(Point p) { return (int) Math.round(height / 2.0 + panY + p.y * zoom * Math.max(40, (height - 80) * 0.40)); }
     private String clip(String s, int w) { return font.width(s) <= w ? s : font.plainSubstrByWidth(s, Math.max(0, w - font.width("…"))) + "…"; }
