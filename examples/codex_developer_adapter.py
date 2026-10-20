@@ -62,6 +62,7 @@ DEVELOPER_ID = "codex-builder"
 MAX_HANDLED_IDS = 2_048
 TICKET_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 REQUEST_PATTERN = re.compile(r"^\s*codex\s*:\s*([a-zA-Z0-9-]{1,64})\s*\|\s*(.+?)\s*$", re.DOTALL)
+INSPECT_PATTERN = re.compile(r"^\s*inspect\s*:\s*([a-zA-Z0-9-]{1,64})\s*$", re.IGNORECASE)
 
 
 class AdapterError(RuntimeError):
@@ -276,6 +277,16 @@ def parse_request(message: dict[str, Any]) -> TicketRequest | None:
     return TicketRequest(message_id, ticket_id, prompt)
 
 
+def parse_inspection(message: dict[str, Any]) -> str | None:
+    if not player_message_to_goat(message):
+        return None
+    match = INSPECT_PATTERN.fullmatch(str(message.get("body", "")))
+    if not match:
+        return None
+    ticket_id = match.group(1).lower()
+    return ticket_id if TICKET_PATTERN.fullmatch(ticket_id) else None
+
+
 def stable_id(prefix: str, message_id: str, phase: str) -> str:
     digest = hashlib.sha256(message_id.encode("utf-8")).hexdigest()[:32]
     return f"{prefix}-{phase}-{digest}"
@@ -407,6 +418,27 @@ class CodexJobRunner:
         if committed.returncode != 0:
             raise JobError("Git could not commit the validated ticket changes; no review request was created")
 
+    def inspect_ticket(self, ticket_id: str) -> str:
+        if not TICKET_PATTERN.fullmatch(ticket_id):
+            raise JobError("Ticket ID is invalid")
+        workspace = self.workspace_for(ticket_id)
+        if not workspace.is_dir():
+            raise JobError("No local ticket worktree exists for this ID")
+        branch = self.command(["git", "symbolic-ref", "--short", "HEAD"], workspace, 20)
+        if branch.returncode != 0 or branch.stdout.strip() != f"agent/block-agent-spaces/{ticket_id}":
+            raise JobError("Ticket worktree is not on its expected isolated branch")
+        status = self.command(["git", "status", "--porcelain=v1"], workspace, 20)
+        if status.returncode != 0 or status.stdout.strip():
+            raise JobError("Ticket worktree is not clean; inspect it locally before review")
+        commit = self.command(["git", "log", "-1", "--format=%h %s"], workspace, 20)
+        if commit.returncode != 0 or f"implement {ticket_id}" not in commit.stdout:
+            raise JobError("No validated adapter ticket commit was found on this branch")
+        stat = self.command(["git", "show", "--stat", "--format=", "--no-renames", "HEAD"], workspace, 20)
+        if stat.returncode != 0:
+            raise JobError("Git could not summarize the ticket revision")
+        summary = " ".join(stat.stdout.split())[:650]
+        return f"Ticket {ticket_id} · {commit.stdout.strip()[:160]} · Changed files: {summary or 'none reported'}. This is a diff summary, not a code review or acceptance."
+
     def _review_evidence(self, workspace: Path, base_revision: str) -> JobResult:
         status = self.command(["git", "status", "--porcelain=v1"], workspace, 20)
         if status.returncode != 0:
@@ -518,6 +550,21 @@ class CodexDeveloperAdapter:
         self.state.mark_handled(message_id)
         self.store.save(self.state)
 
+    def _reply_with_inspection(self, message: dict[str, Any], ticket_id: str, published_ids: set[str]) -> None:
+        reply_id = stable_id("ticket-inspection", message["id"], "summary")
+        if reply_id not in published_ids:
+            try:
+                if self.runner is None:
+                    raise JobError("Codex is in dry-run mode; no local ticket worktree was created")
+                body = self.runner.inspect_ticket(ticket_id)
+            except (JobError, OSError, subprocess.TimeoutExpired) as error:
+                body = f"Ticket {ticket_id}: {concise_failure(error)}"
+            self.bridge.post("/v1/messages", {
+                "id": reply_id, "from": GOAT_ID, "to": "minecraft-player", "body": body,
+            })
+        self.state.mark_handled(message["id"])
+        self.store.save(self.state)
+
     def _reply_to_developer(self, message: dict[str, Any], published_ids: set[str], snapshot: dict[str, Any]) -> None:
         message_id = message["id"]
         agent_id = message["to"]
@@ -579,7 +626,11 @@ class CodexDeveloperAdapter:
                     if request:
                         self._run_request(request)
                     else:
-                        self._reply_without_job(message, published_ids)
+                        ticket_id = parse_inspection(message)
+                        if ticket_id:
+                            self._reply_with_inspection(message, ticket_id, published_ids)
+                        else:
+                            self._reply_without_job(message, published_ids)
                     continue
                 if not isinstance(message.get("to"), str):
                     continue
@@ -667,6 +718,22 @@ class CodexDeveloperAdapterTest(unittest.TestCase):
             self.assertEqual("", run_command(["git", "status", "--porcelain=v1"], workspace, 10).stdout.strip())
             self.assertEqual("print('base')\n", (repository / "app.py").read_text(encoding="utf-8"))
             self.assertEqual("print('ticket')\n", (workspace / "app.py").read_text(encoding="utf-8"))
+            inspection = runner.inspect_ticket("ticket-1")
+            self.assertIn(result.head_revision[:7], inspection)
+            self.assertIn("app.py", inspection)
+            self.assertIn("not a code review", inspection)
+
+    def test_inspection_button_request_reports_dry_run_truthfully(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = FakeBridge()
+            bridge.feed = {"events": [{"type": "message.created"}], "nextCursor": 1}
+            bridge.message_list = [{"id": "inspect-1", "from": "minecraft-player", "to": "goat", "body": "inspect: ticket-1"}]
+            adapter = CodexDeveloperAdapter(bridge, StateStore(Path(directory) / "state.json"), None, execute=False)
+            adapter.poll_once()
+            replies = [payload for path, payload in bridge.posts if path == "/v1/messages"]
+            self.assertEqual(1, len(replies))
+            self.assertIn("dry-run mode", replies[0]["body"])
+            self.assertFalse(any(path == "/v1/tasks" for path, _ in bridge.posts))
 
     def test_ticket_commit_is_isolated_and_rejects_secret_like_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

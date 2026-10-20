@@ -102,8 +102,11 @@ new Goat ticket for follow-up development.
 2. The ticket board shows `assigned`, then `in_progress` only when a real local
    job begins.
 3. Goat’s notebook reports each phase. The graph links Goat, the ticket, and the Codex Builder. The ticket reaches `awaiting_review` only after the Codex process and configured
-   test command succeed. Goat can then assign a reviewer and make a separate,
-   explicit acceptance decision.
+   test command succeed. Reviewer assignment and acceptance are not yet
+   automated by this adapter; no merge occurs without a separate workflow.
+   Select **Inspect ticket** in Goat's notebook to see the committed revision
+   and changed-file summary. This is read-only Git evidence, not a code review
+   or acceptance decision. It preserves any unfinished message draft.
 4. A failure is visible as `blocked`, with a concise safe reason. Inspect the
    bounded local worktree/artifacts before deciding whether to retry with a new
    ticket request.

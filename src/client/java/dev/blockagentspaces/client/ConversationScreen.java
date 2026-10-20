@@ -24,6 +24,8 @@ final class ConversationScreen extends Screen {
     private static ConversationScreen active;
     private static final int MAX_MESSAGE_LENGTH = 400;
     private static final Pattern TICKET_REQUEST = Pattern.compile("^codex:\\s*([a-z][a-z0-9-]{0,63})\\s*\\|\\s*(.*)$", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    private static final Pattern TICKET_ID = Pattern.compile("[a-z][a-z0-9-]{0,63}");
+    private static final Pattern INSPECTION_REQUEST = Pattern.compile("^inspect:\\s*([a-z][a-z0-9-]{0,63})$", Pattern.CASE_INSENSITIVE);
     // GLFW key values are part of Minecraft's input contract, but GLFW is not exposed to mod compilation.
     private static final int ENTER_KEY = 257;
     private static final int KEYPAD_ENTER_KEY = 335;
@@ -34,8 +36,10 @@ final class ConversationScreen extends Screen {
     private Button sendButton;
     private Button graphButton;
     private Button ticketButton;
+    private Button inspectButton;
     private String deliveryStatus;
     private boolean sending;
+    private boolean preserveDraftOnSuccess;
     private String pendingRequestId = "";
     private int refreshTicks;
     private int transcriptScroll;
@@ -58,6 +62,7 @@ final class ConversationScreen extends Screen {
         String existingDraft = draft == null ? "" : draft.getValue();
         sendButton = null;
         ticketButton = null;
+        inspectButton = null;
         int panelWidth = panelWidth();
         int panelX = (width - panelWidth) / 2;
         int composeY = Math.max(138, height - 48);
@@ -89,6 +94,9 @@ final class ConversationScreen extends Screen {
             ticketButton = addRenderableWidget(Button.builder(Component.literal("Request ticket"), button -> requestTicket())
                 .bounds(panelX + panelWidth - 116, 18, 106, 18).build());
             ticketButton.active = !sending && !existingDraft.trim().isEmpty();
+            inspectButton = addRenderableWidget(Button.builder(Component.literal("Inspect ticket"), button -> requestInspection())
+                .bounds(panelX + panelWidth - 116, 115, 106, 18).build());
+            inspectButton.active = !sending && validTicket(context.ticket());
         } else {
             addRenderableWidget(Button.builder(Component.literal("Ask Goat"), button -> {
                 deliveryStatus = "Opening Goat's notebook…";
@@ -195,6 +203,7 @@ final class ConversationScreen extends Screen {
         context = update;
         messages.clear();
         messages.addAll(conversationFor(update));
+        if (inspectButton != null) inspectButton.active = !sending && validTicket(context.ticket());
         if (!sending) deliveryStatus = safe(update.deliveryStatus());
     }
 
@@ -203,15 +212,17 @@ final class ConversationScreen extends Screen {
         sending = false;
         pendingRequestId = "";
         draft.setEditable(true);
-        if (result.accepted()) draft.setValue("");
+        if (result.accepted() && !preserveDraftOnSuccess) draft.setValue("");
+        preserveDraftOnSuccess = false;
         sendButton.active = !draft.getValue().trim().isEmpty();
         if (ticketButton != null) ticketButton.active = sendButton.active;
+        if (inspectButton != null) inspectButton.active = validTicket(context.ticket());
         deliveryStatus = safe(result.status());
     }
 
     private void send() {
         String body = safe(draft.getValue()).trim();
-        sendBody(body);
+        sendBody(body, false);
     }
 
     private void requestTicket() {
@@ -224,17 +235,25 @@ final class ConversationScreen extends Screen {
             deliveryStatus = "Ticket request is too long; shorten the draft and try again.";
             return;
         }
-        sendBody(body);
+        sendBody(body, false);
     }
 
-    private void sendBody(String body) {
+    private void requestInspection() {
+        if (!isGoat() || !validTicket(context.ticket())) return;
+        sendBody("inspect: " + context.ticket(), true);
+    }
+
+    private void sendBody(String body, boolean preserveDraft) {
         if (body.isEmpty() || sending) return;
         sending = true;
+        preserveDraftOnSuccess = preserveDraft;
         pendingRequestId = java.util.UUID.randomUUID().toString();
         draft.setEditable(false);
         sendButton.active = false;
         if (ticketButton != null) ticketButton.active = false;
-        deliveryStatus = body.startsWith("codex: ") ? "Requesting a development ticket from Goat…" : "Sending to the local bridge…";
+        if (inspectButton != null) inspectButton.active = false;
+        deliveryStatus = body.startsWith("codex: ") ? "Requesting a development ticket from Goat…"
+            : body.startsWith("inspect: ") ? "Requesting a local ticket diff summary…" : "Sending to the local bridge…";
         ClientPlayNetworking.send(new ConversationPayloads.Send(context.agentId(), body, pendingRequestId));
     }
 
@@ -282,10 +301,14 @@ final class ConversationScreen extends Screen {
         String body = safe(entry.body());
         if (!entry.outgoing() || !"goat".equalsIgnoreCase(context.agentId())) return body;
         var request = TICKET_REQUEST.matcher(body);
-        return request.matches() ? "Ticket request (" + request.group(1) + "): " + request.group(2) : body;
+        if (request.matches()) return "Ticket request (" + request.group(1) + "): " + request.group(2);
+        var inspection = INSPECTION_REQUEST.matcher(body);
+        return inspection.matches() ? "Inspect ticket (" + inspection.group(1) + ")" : body;
     }
 
     private boolean isGoat() { return "goat".equalsIgnoreCase(context.agentId()); }
+
+    private static boolean validTicket(String value) { return value != null && TICKET_ID.matcher(value).matches(); }
 
     private static int stateColor(String state) {
         String value = safe(state).toLowerCase();

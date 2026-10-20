@@ -7,7 +7,7 @@ Block Agent Spaces is a visual control surface for an agent development team and
 - Click an agent to open its live notebook: see its task and review state, send a message, and distinguish your sent note from an actual adapter reply. The Codex adapter gives no-token status answers in developer notebooks and labels unsupported free-form notes honestly.
 - Explore a black-canvas knowledge graph: search, pan, zoom, select nodes, follow links, and open agent notebooks from the directory.
 - Ask Goat for reported status without a model call, or request a Codex development ticket from its notebook.
-- Watch a ticket move through assignment, isolated development, and review handoff. The optional Codex adapter runs tests, creates a guarded local ticket commit, and requires a clean worktree before it reports `awaiting_review`. It never merges or pushes automatically.
+- Watch a ticket move through assignment, isolated development, and review handoff. Goat's **Inspect ticket** button shows the local commit and changed-file summary. The optional Codex adapter runs tests, creates a guarded local ticket commit, and requires a clean worktree before it reports `awaiting_review`. It never merges or pushes automatically.
 
 ## Quick start
 
