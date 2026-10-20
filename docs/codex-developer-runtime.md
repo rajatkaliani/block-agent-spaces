@@ -88,9 +88,9 @@ Actual Codex usage begins only after both opt-ins are set and an explicit
 Minecraft request arrives. Routine status changes, bridge polling, notebook
 views, and the graph consume no Codex usage.
 
-You can ask Goat `status`, `what is Builder doing?`, or `status ticket-123` in
-the notebook. These are read-only summaries of reported state; they do not
-verify code or run Codex.
+Use Goat's **Status** button for a one-click team summary, or ask it `what is
+Builder doing?` or `status ticket-123` in the notebook. These are read-only
+summaries of reported state; they do not verify code or run Codex.
 
 Developer notebooks also answer `status` or `what are you doing?` from the
 published snapshot without a model call. Other direct notes remain visible in

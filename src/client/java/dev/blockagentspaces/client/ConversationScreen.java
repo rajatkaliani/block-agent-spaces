@@ -37,6 +37,7 @@ final class ConversationScreen extends Screen {
     private Button graphButton;
     private Button ticketButton;
     private Button inspectButton;
+    private Button statusButton;
     private String deliveryStatus;
     private boolean sending;
     private boolean preserveDraftOnSuccess;
@@ -63,6 +64,7 @@ final class ConversationScreen extends Screen {
         sendButton = null;
         ticketButton = null;
         inspectButton = null;
+        statusButton = null;
         int panelWidth = panelWidth();
         int panelX = (width - panelWidth) / 2;
         int composeY = Math.max(138, height - 48);
@@ -97,6 +99,9 @@ final class ConversationScreen extends Screen {
             inspectButton = addRenderableWidget(Button.builder(Component.literal("Inspect ticket"), button -> requestInspection())
                 .bounds(panelX + panelWidth - 116, 115, 106, 18).build());
             inspectButton.active = !sending && validTicket(context.ticket());
+            statusButton = addRenderableWidget(Button.builder(Component.literal("Status"), button -> requestStatus())
+                .bounds(panelX + panelWidth - 184, 115, 64, 18).build());
+            statusButton.active = !sending;
         } else {
             addRenderableWidget(Button.builder(Component.literal("Ask Goat"), button -> {
                 deliveryStatus = "Opening Goat's notebook…";
@@ -148,7 +153,7 @@ final class ConversationScreen extends Screen {
         drawField(graphics, "Acceptance: " + context.acceptance(), rightX, panelY + 62, columnWidth, acceptanceColor(context.acceptance()), mouseX, mouseY);
         drawField(graphics, context.detail(), rightX, panelY + 75, columnWidth, 0xFFBAC2CB, mouseX, mouseY);
 
-        graphics.text(font, Component.literal("Conversation"), panelX + 10, panelY + 106, 0xFFB8C7D9, true);
+        graphics.text(font, Component.literal(goat ? "Chat" : "Conversation"), panelX + 10, panelY + 106, 0xFFB8C7D9, true);
         drawMessages(graphics, panelX + 12, panelY + 120, panelWidth - 24, composeY - (panelY + 128));
         drawField(graphics, deliveryStatus, panelX + 10, composeY + 25, panelWidth - 20, 0xFF94A1AF, mouseX, mouseY);
 
@@ -204,6 +209,7 @@ final class ConversationScreen extends Screen {
         messages.clear();
         messages.addAll(conversationFor(update));
         if (inspectButton != null) inspectButton.active = !sending && validTicket(context.ticket());
+        if (statusButton != null) statusButton.active = !sending;
         if (!sending) deliveryStatus = safe(update.deliveryStatus());
     }
 
@@ -217,6 +223,7 @@ final class ConversationScreen extends Screen {
         sendButton.active = !draft.getValue().trim().isEmpty();
         if (ticketButton != null) ticketButton.active = sendButton.active;
         if (inspectButton != null) inspectButton.active = validTicket(context.ticket());
+        if (statusButton != null) statusButton.active = true;
         deliveryStatus = safe(result.status());
     }
 
@@ -243,6 +250,11 @@ final class ConversationScreen extends Screen {
         sendBody("inspect: " + context.ticket(), true);
     }
 
+    private void requestStatus() {
+        if (!isGoat()) return;
+        sendBody("status", true);
+    }
+
     private void sendBody(String body, boolean preserveDraft) {
         if (body.isEmpty() || sending) return;
         sending = true;
@@ -252,8 +264,10 @@ final class ConversationScreen extends Screen {
         sendButton.active = false;
         if (ticketButton != null) ticketButton.active = false;
         if (inspectButton != null) inspectButton.active = false;
+        if (statusButton != null) statusButton.active = false;
         deliveryStatus = body.startsWith("codex: ") ? "Requesting a development ticket from Goat…"
-            : body.startsWith("inspect: ") ? "Requesting a local ticket diff summary…" : "Sending to the local bridge…";
+            : body.startsWith("inspect: ") ? "Requesting a local ticket diff summary…"
+            : body.equals("status") ? "Requesting reported team status…" : "Sending to the local bridge…";
         ClientPlayNetworking.send(new ConversationPayloads.Send(context.agentId(), body, pendingRequestId));
     }
 
@@ -303,7 +317,8 @@ final class ConversationScreen extends Screen {
         var request = TICKET_REQUEST.matcher(body);
         if (request.matches()) return "Ticket request (" + request.group(1) + "): " + request.group(2);
         var inspection = INSPECTION_REQUEST.matcher(body);
-        return inspection.matches() ? "Inspect ticket (" + inspection.group(1) + ")" : body;
+        if (inspection.matches()) return "Inspect ticket (" + inspection.group(1) + ")";
+        return body.equals("status") ? "Team status request" : body;
     }
 
     private boolean isGoat() { return "goat".equalsIgnoreCase(context.agentId()); }
