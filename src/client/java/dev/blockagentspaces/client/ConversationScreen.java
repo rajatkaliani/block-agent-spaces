@@ -26,6 +26,7 @@ final class ConversationScreen extends Screen {
     private static final int ENTER_KEY = 257;
     private static final int KEYPAD_ENTER_KEY = 335;
     private ConversationPayloads.Open context;
+    private final Screen parent;
     private final List<NotebookMessage> messages;
     private EditBox draft;
     private Button sendButton;
@@ -39,8 +40,13 @@ final class ConversationScreen extends Screen {
     private int maxTranscriptScroll;
 
     ConversationScreen(ConversationPayloads.Open context) {
+        this(context, null);
+    }
+
+    ConversationScreen(ConversationPayloads.Open context, Screen parent) {
         super(Component.literal(safe(context.name()) + " notebook"));
         this.context = context;
+        this.parent = parent;
         this.messages = new ArrayList<>(conversationFor(context));
         this.deliveryStatus = safe(context.deliveryStatus());
     }
@@ -154,6 +160,10 @@ final class ConversationScreen extends Screen {
 
     @Override public void added() { super.added(); active = this; }
     @Override public void removed() { if (active == this) active = null; super.removed(); }
+    @Override public void onClose() {
+        if (parent != null) minecraft.setScreenAndShow(parent);
+        else super.onClose();
+    }
     static ConversationScreen active() { return active; }
 
     @Override

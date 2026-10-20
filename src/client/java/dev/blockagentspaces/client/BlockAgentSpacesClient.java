@@ -10,7 +10,7 @@ public final class BlockAgentSpacesClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(ConversationPayloads.Open.TYPE, (payload, context) -> {
             ConversationScreen screen = ConversationScreen.active();
             if (screen != null && screen.displays(payload.agentId())) screen.update(payload);
-            else context.client().setScreenAndShow(new ConversationScreen(payload));
+            else context.client().setScreenAndShow(new ConversationScreen(payload, GraphScreen.active()));
         });
         ClientPlayNetworking.registerGlobalReceiver(ConversationPayloads.Update.TYPE, (payload, context) -> {
             ConversationScreen screen = ConversationScreen.active();
@@ -20,7 +20,7 @@ public final class BlockAgentSpacesClient implements ClientModInitializer {
             ConversationScreen screen = ConversationScreen.active();
             if (screen != null && screen.displays(payload.agentId())) screen.sent(payload);
         });
-        ClientPlayNetworking.registerGlobalReceiver(GraphPayloads.Open.TYPE, (payload, context) -> context.client().setScreenAndShow(new GraphScreen(payload)));
+        ClientPlayNetworking.registerGlobalReceiver(GraphPayloads.Open.TYPE, (payload, context) -> context.client().setScreenAndShow(new GraphScreen(payload, ConversationScreen.active())));
         ClientPlayNetworking.registerGlobalReceiver(GraphPayloads.Update.TYPE, (payload, context) -> {
             GraphScreen screen = GraphScreen.active();
             if (screen != null) screen.update(payload.snapshot());

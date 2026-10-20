@@ -11,12 +11,14 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 
 /** A client-rendered graph, independent of the in-world display entities. */
 final class GraphScreen extends Screen {
     private static GraphScreen active;
     private GraphPayloads.Open graph;
+    private final Screen parent;
     private final Map<String, Point> points = new HashMap<>();
     private GraphPayloads.Node selected;
     private Button agentButton;
@@ -24,9 +26,10 @@ final class GraphScreen extends Screen {
     private double zoom = 1.0, panX, panY;
     private int refreshTicks;
 
-    GraphScreen(GraphPayloads.Open graph) {
+    GraphScreen(GraphPayloads.Open graph, Screen parent) {
         super(Component.literal("Knowledge graph"));
         this.graph = graph;
+        this.parent = parent;
         selected = graph.nodes().stream().filter(n -> n.id().equals(graph.selected())).findFirst().orElse(null);
         layout();
     }
@@ -51,6 +54,9 @@ final class GraphScreen extends Screen {
     }
 
     @Override public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float delta) {
+        GraphPayloads.Node hovered = nodeAt(mx, my);
+        String query = search == null ? "" : search.getValue().trim();
+        int labelledMatches = 0;
         g.enableScissor(0, 60, sideX(), height - 24);
         for (GraphPayloads.Edge edge : graph.edges()) {
             Point a = points.get(edge.source()), b = points.get(edge.target());
@@ -66,8 +72,10 @@ final class GraphScreen extends Screen {
             int color = matches ? color(node.type()) : 0xFF35404B;
             circle(g, x, y, active ? 8 : 6, active ? 0xFFFFFFFF : 0xFF31414C);
             circle(g, x, y, active ? 6 : 4, color);
-            String label = clip(node.label(), 120);
-            g.centeredText(font, label, x, y + 10, active ? 0xFFFFFFFF : matches ? 0xFFB6C7D3 : 0xFF4D5962);
+            boolean showLabel = active || node == hovered || graph.nodes().size() <= 20 && query.isEmpty()
+                || !query.isEmpty() && matches && labelledMatches++ < 12;
+            if (showLabel) g.centeredText(font, clip(node.label(), 120), x, y + 10,
+                active ? 0xFFFFFFFF : matches ? 0xFFB6C7D3 : 0xFF4D5962);
         }
         g.disableScissor();
         g.text(font, "KNOWLEDGE GRAPH", 12, 10, 0xFFE2EDF3, true);
@@ -75,18 +83,19 @@ final class GraphScreen extends Screen {
         g.text(font, "Drag to pan  •  Scroll to zoom  •  Click a node", 12, height - 16, 0xFF8194A1, false);
         int sx = sideX() + 10, sw = width - sx - 8;
         g.text(font, "INSPECT", sx, 12, 0xFF8EA9B8, true);
-        if (selected == null) {
-            g.text(font, "Select a node", sx, 34, 0xFFD8E4EB, false);
+        GraphPayloads.Node inspected = selected == null ? hovered : selected;
+        if (inspected == null) {
+            g.text(font, "Hover or select a node", sx, 34, 0xFFD8E4EB, false);
             g.text(font, graph.nodes().size() + " nodes  •  " + graph.edges().size() + " links", sx, 50, 0xFF9CAFB9, false);
         } else {
-            g.text(font, clip(selected.label(), sw), sx, 34, 0xFFF4F8FA, true);
-            g.text(font, clip(selected.type() + "  •  " + selected.id(), sw), sx, 49, 0xFF9AB6C6, false);
+            g.text(font, clip(inspected.label(), sw), sx, 34, 0xFFF4F8FA, true);
+            g.text(font, clip(inspected.type() + "  •  " + inspected.id(), sw), sx, 49, 0xFF9AB6C6, false);
             g.text(font, "RELATIONSHIPS", sx, 70, 0xFF8EA9B8, true);
             int y = 85, count = 0;
             for (GraphPayloads.Edge edge : graph.edges()) {
-                if (!edge.source().equals(selected.id()) && !edge.target().equals(selected.id())) continue;
+                if (!edge.source().equals(inspected.id()) && !edge.target().equals(inspected.id())) continue;
                 if (y + 25 > height - 50) break;
-                boolean outgoing = edge.source().equals(selected.id());
+                boolean outgoing = edge.source().equals(inspected.id());
                 String other = outgoing ? edge.target() : edge.source();
                 String label = graph.nodes().stream().filter(n -> n.id().equals(other)).map(GraphPayloads.Node::label).findFirst().orElse(other);
                 g.text(font, clip((outgoing ? "→ " : "← ") + label, sw), sx, y, 0xFFDFEAF0, false);
@@ -102,15 +111,26 @@ final class GraphScreen extends Screen {
     @Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (super.mouseClicked(event, doubleClick)) return true;
         if (event.button() != 0 || event.x() >= sideX() || event.y() < 60 || event.y() >= height - 24) return false;
-        GraphPayloads.Node nearest = null;
-        double distance = 14 * 14;
-        for (GraphPayloads.Node node : graph.nodes()) {
-            Point p = points.get(node.id());
-            double dx = event.x() - x(p), dy = event.y() - y(p), candidate = dx * dx + dy * dy;
-            if (candidate < distance) { distance = candidate; nearest = node; }
-        }
+        GraphPayloads.Node nearest = nodeAt(event.x(), event.y());
         if (nearest != null) { selected = nearest; updateButton(); }
         return true;
+    }
+
+    @Override public boolean keyPressed(KeyEvent event) {
+        if (event.key() == 257 || event.key() == 335) {
+            String query = search == null ? "" : search.getValue().trim();
+            if (!query.isEmpty() && search.isFocused()) {
+                graph.nodes().stream().filter(this::matches).findFirst().ifPresent(node -> {
+                    selected = node;
+                    updateButton();
+                    Point p = points.get(node.id());
+                    panX = -p.x * zoom * Math.max(40, sideX() * 0.40);
+                    panY = -p.y * zoom * Math.max(40, (height - 80) * 0.40);
+                });
+                return true;
+            }
+        }
+        return super.keyPressed(event);
     }
 
     @Override public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
@@ -131,6 +151,10 @@ final class GraphScreen extends Screen {
     @Override public boolean isPauseScreen() { return false; }
     @Override public void added() { super.added(); active = this; }
     @Override public void removed() { if (active == this) active = null; super.removed(); }
+    @Override public void onClose() {
+        if (parent != null) minecraft.setScreenAndShow(parent);
+        else super.onClose();
+    }
     @Override public void tick() {
         super.tick();
         if (++refreshTicks >= 100) { refreshTicks = 0; ClientPlayNetworking.send(new GraphPayloads.Refresh(selected == null ? "" : selected.id())); }
@@ -149,6 +173,18 @@ final class GraphScreen extends Screen {
     private boolean matches(GraphPayloads.Node node) {
         String query = search == null ? "" : search.getValue().trim().toLowerCase(java.util.Locale.ROOT);
         return query.isEmpty() || (node.id() + " " + node.label() + " " + node.type()).toLowerCase(java.util.Locale.ROOT).contains(query);
+    }
+    private GraphPayloads.Node nodeAt(double mx, double my) {
+        if (mx >= sideX() || my < 60 || my >= height - 24) return null;
+        GraphPayloads.Node nearest = null;
+        double distance = 14 * 14;
+        for (GraphPayloads.Node node : graph.nodes()) {
+            Point p = points.get(node.id());
+            if (p == null) continue;
+            double dx = mx - x(p), dy = my - y(p), candidate = dx * dx + dy * dy;
+            if (candidate < distance) { distance = candidate; nearest = node; }
+        }
+        return nearest;
     }
     private int x(Point p) { return (int) Math.round(sideX() / 2.0 + panX + p.x * zoom * Math.max(40, sideX() * 0.40)); }
     private int y(Point p) { return (int) Math.round(height / 2.0 + panY + p.y * zoom * Math.max(40, (height - 80) * 0.40)); }
