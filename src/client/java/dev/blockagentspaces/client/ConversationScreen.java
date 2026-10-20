@@ -89,6 +89,11 @@ final class ConversationScreen extends Screen {
             ticketButton = addRenderableWidget(Button.builder(Component.literal("Request ticket"), button -> requestTicket())
                 .bounds(panelX + panelWidth - 116, 18, 106, 18).build());
             ticketButton.active = !sending && !existingDraft.trim().isEmpty();
+        } else {
+            addRenderableWidget(Button.builder(Component.literal("Ask Goat"), button -> {
+                deliveryStatus = "Opening Goat's notebook…";
+                ClientPlayNetworking.send(new GraphPayloads.OpenAgent("goat"));
+            }).bounds(panelX + panelWidth - 116, 18, 106, 18).build());
         }
         setInitialFocus(draft);
     }
@@ -122,7 +127,7 @@ final class ConversationScreen extends Screen {
 
         String name = safe(context.name());
         boolean goat = isGoat();
-        graphics.text(font, Component.literal(clipped(name + (goat ? "  • LEAD AGENT" : "  • WORKSPACE AGENT"), panelWidth - (goat ? 128 : 20))), panelX + 10, panelY + 10, goat ? 0xFFF6CE72 : 0xFFE4E9F0, true);
+        graphics.text(font, Component.literal(clipped(name + (goat ? "  • LEAD AGENT" : "  • WORKSPACE AGENT"), panelWidth - 128)), panelX + 10, panelY + 10, goat ? 0xFFF6CE72 : 0xFFE4E9F0, true);
         int columnWidth = Math.max(95, panelWidth / 2 - 18);
         drawField(graphics, "State: " + context.state(), panelX + 10, panelY + 34, columnWidth, stateColor(context.state()), mouseX, mouseY);
         drawField(graphics, "Task: " + context.task(), panelX + 10, panelY + 47, columnWidth, 0xFFD7DFE8, mouseX, mouseY);

@@ -10,7 +10,7 @@ public final class BlockAgentSpacesClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(ConversationPayloads.Open.TYPE, (payload, context) -> {
             ConversationScreen screen = ConversationScreen.active();
             if (screen != null && screen.displays(payload.agentId())) screen.update(payload);
-            else context.client().setScreenAndShow(new ConversationScreen(payload, GraphScreen.active()));
+            else context.client().setScreenAndShow(new ConversationScreen(payload, screen != null ? screen : GraphScreen.active()));
         });
         ClientPlayNetworking.registerGlobalReceiver(ConversationPayloads.Update.TYPE, (payload, context) -> {
             ConversationScreen screen = ConversationScreen.active();
