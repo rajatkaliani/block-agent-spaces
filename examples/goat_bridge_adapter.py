@@ -24,6 +24,11 @@ Minecraft-to-Goat messages and publishes only supported agent state and
 messages.  It does not execute a model, create tickets, create Git worktrees,
 review code, or merge changes.
 
+Goat can answer a small set of status questions from the bridge snapshot
+without spending model tokens: ``status``, ``what is Builder doing?``, or
+``status ticket-123``. These are read-only summaries of published state, not
+independent verification of the external agent's work.
+
 Run ``python3 examples/goat_bridge_adapter.py --self-test`` for offline tests.
 """
 
@@ -33,6 +38,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -143,6 +149,7 @@ class Bridge(Protocol):
     def health(self) -> dict[str, Any]: ...
     def events_after(self, cursor: int) -> dict[str, Any]: ...
     def messages(self) -> list[dict[str, Any]]: ...
+    def snapshot(self) -> dict[str, Any]: ...
     def post(self, path: str, payload: dict[str, Any]) -> Any: ...
 
 
@@ -184,6 +191,12 @@ class BridgeClient:
         result = self._request("/v1/messages")
         if not isinstance(result, list) or any(not isinstance(message, dict) for message in result):
             raise AdapterError("bridge returned an invalid message list")
+        return result
+
+    def snapshot(self) -> dict[str, Any]:
+        result = require_object(self._request("/v1/snapshot"), "snapshot")
+        if any(not isinstance(result.get(key), list) for key in ("agents", "tasks")):
+            raise AdapterError("bridge returned an invalid agent/task snapshot")
         return result
 
     def post(self, path: str, payload: dict[str, Any]) -> Any:
@@ -228,6 +241,60 @@ def acknowledgement_id(incoming_id: str) -> str:
     return f"goat-ack-{digest}"
 
 
+def status_subject(body: str) -> str | None:
+    """Recognize a deliberately small set of read-only status questions."""
+    normalized = " ".join(body.lower().strip().rstrip("?.!").split())
+    if normalized in {"status", "team status", "what's happening", "what is happening", "what are the agents doing"}:
+        return "team"
+    match = re.fullmatch(r"(?:what is |what's )(.+?) doing", normalized)
+    if match:
+        return match.group(1)
+    match = re.fullmatch(r"(?:status of |status for |status )(.+)", normalized)
+    return match.group(1) if match else None
+
+
+def status_reply(snapshot: dict[str, Any], subject: str) -> str:
+    """Summarize published bridge facts without hallucinating work or replies."""
+    agents = [item for item in snapshot["agents"] if isinstance(item, dict)]
+    tasks = [item for item in snapshot["tasks"] if isinstance(item, dict)]
+
+    def agent_line(agent: dict[str, Any]) -> str:
+        name = str(agent.get("displayName") or agent.get("id") or "Agent")[:60]
+        state = str(agent.get("state") or "unknown").lower()[:32]
+        ticket = str(agent.get("ticketId") or agent.get("taskId") or "")[:80]
+        review = str(agent.get("reviewStatus") or "")[:40]
+        detail = str(agent.get("detail") or "")[:220]
+        fields = [f"{name}: {state}"]
+        if ticket:
+            fields.append(f"ticket {ticket}")
+        if review and review not in {"not_requested", "not_applicable"}:
+            fields.append(f"review {review}")
+        if detail:
+            fields.append(detail)
+        return " · ".join(fields)
+
+    if subject == "team":
+        active = [agent for agent in agents if str(agent.get("state", "")).upper() != "IDLE"]
+        recent = [task for task in tasks if str(task.get("status", "")).lower() not in {"done", "accepted"}]
+        lines = ["Reported bridge status (no agent run triggered):"]
+        lines.extend(agent_line(agent) for agent in active[:4])
+        lines.extend(f"{str(task.get('id') or 'ticket')[:80]}: {str(task.get('status') or 'unknown')[:40]}" for task in recent[:4])
+        if len(lines) == 1:
+            lines.append("No active agents or tickets have been published yet.")
+        if len(active) > 4 or len(recent) > 4:
+            lines.append(f"Showing 4 of {len(active)} active agents and 4 of {len(recent)} open tickets at most.")
+        return "\n".join(lines)
+
+    requested = subject.casefold()
+    for agent in agents:
+        if requested in {str(agent.get("id", "")).casefold(), str(agent.get("displayName", "")).casefold()}:
+            return "Reported bridge status: " + agent_line(agent)
+    for task in tasks:
+        if requested == str(task.get("id", "")).casefold():
+            return f"Reported ticket {str(task.get('id'))[:80]}: {str(task.get('status') or 'unknown')[:40]} · {str(task.get('title') or '')[:160]}"
+    return f"No published agent or ticket matches {subject[:80]}. Open the graph's Agents tab or ask 'status' for the current roster."
+
+
 class GoatBridgeAdapter:
     """Consumes player-to-Goat messages and emits conservative, visible confirmations."""
 
@@ -261,10 +328,12 @@ class GoatBridgeAdapter:
     def _handle_player_message(self, message: dict[str, Any], published_ids: set[str]) -> None:
         incoming_id = message["id"]
         reply_id = acknowledgement_id(incoming_id)
-        ticket_request = str(message.get("body", "")).strip().lower().startswith("codex:")
+        body = str(message.get("body", ""))
+        ticket_request = body.strip().lower().startswith("codex:")
+        subject = None if ticket_request else status_subject(body)
         # Agent updates are upserts. They are deliberately modest: this
         # adapter never pretends that a ticket, branch, review, or merge exists.
-        if not ticket_request:
+        if not ticket_request and subject is None:
             self.bridge.post("/v1/agents", {
                 "id": GOAT_ID,
                 "displayName": "Goat",
@@ -279,13 +348,17 @@ class GoatBridgeAdapter:
                 "graphFocus": [],
             })
         if reply_id not in published_ids:
+            if subject is not None:
+                reply = status_reply(self.bridge.snapshot(), subject)
+            elif ticket_request:
+                reply = "Goat received the ticket request. A running Codex developer adapter can process it; check the ticket board for progress."
+            else:
+                reply = "Goat recorded your message for the configured external orchestrator. This example does not run agents, create tickets, or perform Git work. Ask 'status' for a no-token state summary."
             self.bridge.post("/v1/messages", {
                 "id": reply_id,
                 "from": GOAT_ID,
                 "to": "minecraft-player",
-                "body": ("Goat received the ticket request. A running Codex developer adapter can process it; check the ticket board for progress."
-                         if ticket_request else
-                         "Goat recorded your message for the configured external orchestrator. This example does not run agents, create tickets, or perform Git work."),
+                "body": reply,
             })
         # Mark completion only after the deterministic visible acknowledgement
         # is confirmed or found in the bridge. A restart therefore does not
@@ -317,6 +390,7 @@ class FakeBridge:
         self.mode = mode
         self.feed: dict[str, Any] = {"events": [], "nextCursor": 0}
         self.message_list: list[dict[str, Any]] = []
+        self.snapshot_data: dict[str, Any] = {"agents": [], "tasks": []}
         self.posts: list[tuple[str, dict[str, Any]]] = []
 
     def health(self) -> dict[str, Any]:
@@ -328,6 +402,9 @@ class FakeBridge:
     def messages(self) -> list[dict[str, Any]]:
         return list(self.message_list)
 
+    def snapshot(self) -> dict[str, Any]:
+        return self.snapshot_data
+
     def post(self, path: str, payload: dict[str, Any]) -> Any:
         self.posts.append((path, payload))
         if path == "/v1/messages":
@@ -336,6 +413,27 @@ class FakeBridge:
 
 
 class GoatBridgeAdapterTest(unittest.TestCase):
+    def test_status_questions_use_published_facts_without_overwriting_goat(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = FakeBridge()
+            bridge.feed = {"events": [{"id": 1, "type": "message.created"}], "nextCursor": 1}
+            bridge.message_list = [{"id": "status-1", "from": "minecraft-player", "to": "goat", "body": "What is Builder doing?"}]
+            bridge.snapshot_data = {"agents": [{"id": "builder", "displayName": "Builder", "state": "WORKING", "ticketId": "ticket-7", "detail": "Writing graph tests"}], "tasks": []}
+            GoatBridgeAdapter(bridge, StateStore(Path(directory) / "state.json")).poll_once()
+            self.assertFalse(any(path == "/v1/agents" for path, _ in bridge.posts))
+            replies = [payload["body"] for path, payload in bridge.posts if path == "/v1/messages"]
+            self.assertEqual(1, len(replies))
+            self.assertIn("ticket ticket-7", replies[0])
+            self.assertIn("Writing graph tests", replies[0])
+
+    def test_team_and_ticket_status_are_bounded_and_honest(self) -> None:
+        snapshot = {"agents": [{"id": "goat", "displayName": "Goat", "state": "REVIEWING", "reviewStatus": "awaiting_review"}],
+                    "tasks": [{"id": "ticket-7", "title": "Graph tests", "status": "awaiting_review"}]}
+        self.assertEqual("team", status_subject("What's happening?"))
+        self.assertIn("Goat: reviewing", status_reply(snapshot, "team"))
+        self.assertIn("awaiting_review", status_reply(snapshot, "ticket-7"))
+        self.assertIn("No published agent", status_reply(snapshot, "missing"))
+
     def test_pairing_token_is_sent_only_for_mutations(self) -> None:
         client = BridgeClient("http://127.0.0.1:8787", "pairing-secret")
         self.assertEqual(client._headers(False), {})
