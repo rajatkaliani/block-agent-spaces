@@ -90,6 +90,12 @@ You can ask Goat `status`, `what is Builder doing?`, or `status ticket-123` in
 the notebook. These are read-only summaries of reported state; they do not
 verify code or run Codex.
 
+Developer notebooks also answer `status` or `what are you doing?` from the
+published snapshot without a model call. Other direct notes remain visible in
+the conversation but are not injected into a running Codex job; the adapter
+labels this limitation instead of implying the worker acted on them. Use a
+new Goat ticket for follow-up development.
+
 ## Expected Minecraft flow
 
 1. Open Goat’s notebook, write the task, and select **Request ticket**. The ticket ID appears in the conversation.

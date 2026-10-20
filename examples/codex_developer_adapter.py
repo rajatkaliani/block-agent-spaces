@@ -46,7 +46,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from goat_bridge_adapter import acknowledgement_id, ordinary_goat_reply, player_message_to_goat
+from goat_bridge_adapter import acknowledgement_id, ordinary_goat_reply, player_message_to_goat, status_reply, status_subject
 
 
 DEFAULT_BRIDGE_URL = "http://127.0.0.1:8787"
@@ -518,6 +518,23 @@ class CodexDeveloperAdapter:
         self.state.mark_handled(message_id)
         self.store.save(self.state)
 
+    def _reply_to_developer(self, message: dict[str, Any], published_ids: set[str], snapshot: dict[str, Any]) -> None:
+        message_id = message["id"]
+        agent_id = message["to"]
+        reply_id = acknowledgement_id(message_id)
+        if reply_id not in published_ids:
+            subject = status_subject(str(message.get("body", "")))
+            if subject is not None or str(message.get("body", "")).strip().lower() in {"what are you doing", "what are you working on"}:
+                body = "Adapter status · " + status_reply(snapshot, agent_id if subject in {None, "team"} else subject)
+            else:
+                body = ("Adapter notice · Your note is recorded in this notebook, but this runtime does not inject free-form messages "
+                        "into an active Codex job. Ask Goat for a follow-up ticket; no model call was made for this reply.")
+            self.bridge.post("/v1/messages", {
+                "id": reply_id, "from": agent_id, "to": "minecraft-player", "body": body,
+            })
+        self.state.mark_handled(message_id)
+        self.store.save(self.state)
+
     def _run_request(self, request: TicketRequest) -> None:
         # A durable launch marker is written before a tool call. A restart
         # cannot secretly launch Codex twice; it visibly blocks for inspection.
@@ -553,14 +570,23 @@ class CodexDeveloperAdapter:
         if any(isinstance(event, dict) and event.get("type") == "message.created" for event in events):
             messages = self.bridge.messages()
             published_ids = {message.get("id") for message in messages if isinstance(message.get("id"), str)}
+            snapshot: dict[str, Any] | None = None
             for message in messages:
-                if not player_message_to_goat(message) or self.state.handled(message["id"]):
+                if message.get("from") != "minecraft-player" or not isinstance(message.get("id"), str) or not message["id"] or self.state.handled(message["id"]):
                     continue
-                request = parse_request(message)
-                if request:
-                    self._run_request(request)
-                else:
-                    self._reply_without_job(message, published_ids)
+                if player_message_to_goat(message):
+                    request = parse_request(message)
+                    if request:
+                        self._run_request(request)
+                    else:
+                        self._reply_without_job(message, published_ids)
+                    continue
+                if not isinstance(message.get("to"), str):
+                    continue
+                if snapshot is None:
+                    snapshot = self.bridge.snapshot()
+                if any(isinstance(agent, dict) and agent.get("id") == message["to"] for agent in snapshot["agents"]):
+                    self._reply_to_developer(message, published_ids, snapshot)
         self.state.cursor = next_cursor
         self.store.save(self.state)
         self.bridge.post("/v1/events/ack", {"consumer": CONSUMER, "cursor": next_cursor})
@@ -596,6 +622,24 @@ class FakeBridge:
 
 
 class CodexDeveloperAdapterTest(unittest.TestCase):
+    def test_developer_notebook_reports_status_but_does_not_invent_work(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = FakeBridge()
+            bridge.feed = {"events": [{"type": "message.created"}], "nextCursor": 1}
+            bridge.snapshot_data = {"agents": [{"id": "codex-builder", "displayName": "Codex Builder", "state": "WORKING", "ticketId": "ticket-7", "detail": "Updating graph UI"}], "tasks": []}
+            bridge.message_list = [
+                {"id": "worker-status", "from": "minecraft-player", "to": "codex-builder", "body": "What are you doing"},
+                {"id": "worker-note", "from": "minecraft-player", "to": "codex-builder", "body": "Please change the color"},
+            ]
+            adapter = CodexDeveloperAdapter(bridge, StateStore(Path(directory) / "state.json"), None, execute=False)
+            adapter.poll_once()
+            replies = [payload for path, payload in bridge.posts if path == "/v1/messages"]
+            self.assertEqual(2, len(replies))
+            self.assertTrue(all(reply["from"] == "codex-builder" for reply in replies))
+            self.assertIn("Updating graph UI", replies[0]["body"])
+            self.assertIn("does not inject", replies[1]["body"])
+            self.assertFalse(any(path == "/v1/tasks" for path, _ in bridge.posts))
+
     def test_runner_hands_off_a_validated_isolated_ticket_without_model_usage(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
